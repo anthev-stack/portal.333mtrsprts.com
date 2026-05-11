@@ -207,7 +207,25 @@ docker compose -f docker-compose.prod.yml up -d
 
 Optional: **GitHub Actions** SSH into the server and run the same commands on push to `main`.
 
-## 11. Checklist
+## 11. First accounts (database seed)
+
+After Postgres is up, run the seed **once** from `/opt/portal` (uses `prisma/seed.ts`):
+
+```bash
+cd /opt/portal
+docker compose -f docker-compose.prod.yml --profile seed run --rm seed
+```
+
+Default logins from the seed (change passwords after sign-in):
+
+| Role  | Internal email              | Password            |
+|-------|-------------------------------|---------------------|
+| Admin | `admin@333mtrsprts.com`       | `ChangeMeAdmin123!` |
+| Staff | `cameron@333mtrsprts.com`     | `ChangeMeStaff123!` |
+
+Edit `prisma/seed.ts` and re-run the seed command if you want different emails before production use.
+
+## 12. Checklist
 
 - [ ] DNS `portal` → server IP  
 - [ ] `.env` on server with strong `JWT_SECRET` and correct `DATABASE_URL`  

@@ -53,5 +53,20 @@ services:
       db:
         condition: service_healthy
 
+  # One-off: creates admin@333mtrsprts.com + sample data (see prisma/seed.ts). Not started by `up`.
+  # Run: docker compose -f docker-compose.prod.yml --profile seed run --rm seed
+  seed:
+    profiles: ["seed"]
+    image: node:22-bookworm-slim
+    working_dir: /app
+    volumes:
+      - .:/app
+    environment:
+      DATABASE_URL: postgresql://portal:${POSTGRES_PASSWORD}@db:5432/portal?schema=public
+    depends_on:
+      db:
+        condition: service_healthy
+    command: bash -c "npm ci && npx tsx prisma/seed.ts"
+
 volumes:
   pgdata:
