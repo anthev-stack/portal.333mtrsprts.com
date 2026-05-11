@@ -1,0 +1,368 @@
+// 333 Motorsport Staff Portal — database schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  STAFF
+  ADMIN
+}
+
+enum ThemePreference {
+  LIGHT
+  DARK
+  SYSTEM
+}
+
+enum MessageStatus {
+  DRAFT
+  SENT
+}
+
+enum RecipientKind {
+  TO
+  CC
+  BCC
+}
+
+enum FormFieldType {
+  SHORT_TEXT
+  LONG_TEXT
+  SINGLE_CHOICE
+  MULTI_CHOICE
+  DATE
+  NUMBER
+  EMAIL_FIELD
+}
+
+enum JobAssignmentStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+  UNABLE
+  /// Assign-to-everyone: another assignee started; no action required for this user.
+  WAIVED
+}
+
+model User {
+  id               String            @id @default(cuid())
+  internalEmail    String            @unique
+  externalEmail    String
+  passwordHash     String
+  name             String
+  role             Role              @default(STAFF)
+  address          String?
+  phone            String?
+  emergencyContact String?
+  emergencyPhone   String?
+  position         String?
+  department       String?
+  imageUrl         String?
+
+  themePreference ThemePreference @default(SYSTEM)
+  notifyEmail     Boolean         @default(true)
+  notifyInApp     Boolean         @default(true)
+  emailFooter     String          @default("Best regards,\n333 MOTORSPORTS")
+  awayModeEnabled Boolean         @default(false)
+  awayModeTemplate String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  posts                  Post[]
+  postComments           PostComment[]
+  postReactions          PostReaction[]
+  postCommentReactions   PostCommentReaction[]
+
+  kbArticles KnowledgeArticle[] @relation("ArticleAuthor")
+
+  sentMessages       InternalMessage[]          @relation("SentMessages")
+  messageRecipients  InternalMessageRecipient[]
+  notifications      Notification[]
+  auditLogs          AuditLog[]                 @relation("AuditActor")
+  formsCreated       Form[]                     @relation("FormCreator")
+  formResponses      FormResponse[]
+  passwordResetTokens PasswordResetToken[]
+  jobsCreated        Job[]                      @relation("JobsCreated")
+  jobAssignments     JobAssignment[]
+  mailLabels         MailLabel[]
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+}
+
+model Post {
+  id        String   @id @default(cuid())
+  title     String
+  content   String   @db.Text
+  pinned    Boolean  @default(false)
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  comments  PostComment[]
+  reactions PostReaction[]
+}
+
+model PostComment {
+  id        String   @id @default(cuid())
+  content   String   @db.Text
+  postId    String
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  reactions PostCommentReaction[]
+}
+
+model PostCommentReaction {
+  id        String      @id @default(cuid())
+  emoji     String
+  commentId String
+  comment   PostComment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime    @default(now())
+
+  @@unique([commentId, userId, emoji])
+}
+
+model PostReaction {
+  id        String   @id @default(cuid())
+  emoji     String
+  postId    String
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([postId, userId, emoji])
+}
+
+model KnowledgeArticle {
+  id        String   @id @default(cuid())
+  title     String
+  slug      String   @unique
+  content   String   @db.Text
+  excerpt   String?
+  category  String?
+  authorId  String
+  author    User     @relation("ArticleAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  published Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tags        ArticleTag[]
+  attachments Attachment[] @relation("ArticleAttachments")
+}
+
+model Tag {
+  id       String       @id @default(cuid())
+  name     String       @unique
+  articles ArticleTag[]
+}
+
+model ArticleTag {
+  articleId String
+  article   KnowledgeArticle @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  tagId     String
+  tag       Tag            @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([articleId, tagId])
+}
+
+model Attachment {
+  id        String   @id @default(cuid())
+  filename  String
+  url       String
+  mimeType  String?
+  size      Int?
+  articleId String?
+  article   KnowledgeArticle? @relation("ArticleAttachments", fields: [articleId], references: [id], onDelete: SetNull)
+  messageId String?
+  message   InternalMessage? @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+}
+
+model InternalMessage {
+  id               String        @id @default(cuid())
+  subject          String
+  body             String        @db.Text
+  status           MessageStatus @default(DRAFT)
+  senderId         String
+  sender           User          @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  sentAt           DateTime?
+  /** Sender moved this sent message to Trash (hidden from Sent until restored or purged). */
+  senderTrashedAt  DateTime?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  recipients  InternalMessageRecipient[]
+  attachments Attachment[]
+}
+
+model InternalMessageRecipient {
+  id        String   @id @default(cuid())
+  messageId String
+  message   InternalMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  email     String
+  kind      RecipientKind @default(TO)
+  readAt    DateTime?
+  archived  Boolean  @default(false)
+  /** Recipient moved this message to Trash (hidden from Inbox until restored or row purged). */
+  trashedAt DateTime?
+
+  mailLabels MailRecipientLabel[]
+
+  @@unique([messageId, email])
+}
+
+/// User-defined inbox label (max 20 per user); applied per recipient row.
+model MailLabel {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  /** Hex color e.g. #3b82f6 */
+  color     String
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  recipientLinks MailRecipientLabel[]
+
+  @@index([userId])
+}
+
+model MailRecipientLabel {
+  recipientId String
+  recipient   InternalMessageRecipient @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+  labelId     String
+  label       MailLabel                @relation(fields: [labelId], references: [id], onDelete: Cascade)
+
+  @@id([recipientId, labelId])
+  @@index([labelId])
+}
+
+model Job {
+  id               String            @id @default(cuid())
+  title            String
+  instructions     String            @db.Text
+  assignToEveryone Boolean           @default(false)
+  /** When set, job is archived (Completed tab); hidden from active lists and open-count. */
+  archivedAt     DateTime?
+  /** Set when admin rejects completion; shown to assignees until work restarts. Cleared on Start. */
+  adminRejectionReason String? @db.Text
+  /** Self-created reminder; omitted from org progress aggregate and sidebar job counts. */
+  isReminder       Boolean           @default(false)
+  createdById      String
+  createdBy        User              @relation("JobsCreated", fields: [createdById], references: [id], onDelete: Cascade)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  assignments      JobAssignment[]
+}
+
+model JobAssignment {
+  id           String               @id @default(cuid())
+  jobId        String
+  job          Job                  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status       JobAssignmentStatus  @default(NOT_STARTED)
+  unableReason String?              @db.Text
+  startedAt    DateTime?
+  completedAt  DateTime?
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+
+  @@unique([jobId, userId])
+}
+
+model Form {
+  id          String   @id @default(cuid())
+  title       String
+  description String?  @db.Text
+  shareToken  String   @unique @default(cuid())
+  isPublic    Boolean  @default(false)
+  creatorId   String
+  creator     User     @relation("FormCreator", fields: [creatorId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  fields    FormField[]
+  responses FormResponse[]
+}
+
+model FormField {
+  id       String        @id @default(cuid())
+  formId   String
+  form     Form          @relation(fields: [formId], references: [id], onDelete: Cascade)
+  order    Int
+  type     FormFieldType
+  label    String
+  required Boolean       @default(false)
+  options  Json?
+
+  answers FormAnswer[]
+}
+
+model FormResponse {
+  id          String   @id @default(cuid())
+  formId      String
+  form        Form     @relation(fields: [formId], references: [id], onDelete: Cascade)
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  submittedAt DateTime @default(now())
+
+  answers FormAnswer[]
+}
+
+model FormAnswer {
+  id         String       @id @default(cuid())
+  responseId String
+  response   FormResponse @relation(fields: [responseId], references: [id], onDelete: Cascade)
+  fieldId    String
+  field      FormField    @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+  value      String       @db.Text
+
+  @@unique([responseId, fieldId])
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  title     String
+  body      String?   @db.Text
+  link      String?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String
+  actor      User     @relation("AuditActor", fields: [actorId], references: [id], onDelete: Cascade)
+  action     String
+  entityType String
+  entityId   String?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+}
