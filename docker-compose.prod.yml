@@ -57,7 +57,8 @@ services:
   # Run: docker compose -f docker-compose.prod.yml --profile seed run --rm seed
   seed:
     profiles: ["seed"]
-    image: node:22-bookworm-slim
+    # bookworm-slim can trigger Prisma OpenSSL detection issues; full image is fine for a rare one-off seed.
+    image: node:22-bookworm
     working_dir: /app
     volumes:
       - .:/app
@@ -66,7 +67,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    command: bash -c "npm ci && npx tsx prisma/seed.ts"
+    command: bash -c "npm ci && npx prisma db seed"
 
 volumes:
   pgdata:

@@ -216,6 +216,8 @@ cd /opt/portal
 docker compose -f docker-compose.prod.yml --profile seed run --rm seed
 ```
 
+Uses `node:22-bookworm` and `npx prisma db seed` so Prisma’s OpenSSL detection works reliably on Debian.
+
 Default logins from the seed (change passwords after sign-in):
 
 | Role  | Internal email              | Password            |
