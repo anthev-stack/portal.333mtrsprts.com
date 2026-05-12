@@ -12,6 +12,7 @@ import {
   CardContent,
   CardDescription,
   CardHeader,
+  CardTitle,
 } from "@/components/ui/card";
 
 export function LoginForm() {
@@ -82,11 +83,15 @@ export function LoginForm() {
               height={80}
             />
           </div>
-          <p className="text-xl font-semibold tracking-tight">MOTORSPORTS</p>
-          <h1 className="text-xl font-semibold tracking-tight">STAFF PORTAL</h1>
+          <p className="text-4xl font-semibold tracking-tight sm:text-5xl">
+            MOTORSPORTS
+          </p>
         </div>
         <Card className="border-border/80 shadow-lg shadow-black/5">
-          <CardHeader className="items-center space-y-4 text-center">
+          <CardHeader className="items-center space-y-2 text-center">
+            <CardTitle className="text-xl font-semibold tracking-tight">
+              STAFF PORTAL
+            </CardTitle>
             <CardDescription>
               Sign in with your internal work email.
             </CardDescription>

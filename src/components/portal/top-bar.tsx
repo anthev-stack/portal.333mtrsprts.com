@@ -73,49 +73,55 @@ export function PortalTopBar({ initialMe }: { initialMe: Me | null }) {
 
   return (
     <>
-      <header className="sticky top-0 z-40 flex h-14 items-center gap-3 border-b bg-background/80 px-4 backdrop-blur">
-        <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+      <header className="sticky top-0 z-40 grid h-14 grid-cols-[1fr_auto_1fr] items-center gap-2 border-b bg-background/80 px-4 backdrop-blur">
+        <div className="flex min-w-0 items-center gap-3">
+          <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="md:hidden"
+              onClick={() => setMobileOpen(true)}
+            >
+              <Menu className="size-5" />
+              <span className="sr-only">Open navigation</span>
+            </Button>
+            <SheetContent side="left" className="w-72 p-0">
+              {me && (
+                <PortalSidebar
+                  role={me.role}
+                  onNavigate={() => setMobileOpen(false)}
+                />
+              )}
+            </SheetContent>
+          </Sheet>
+
+          <Button
+            variant="outline"
+            className="hidden h-9 min-w-0 flex-1 items-center justify-start gap-2 text-muted-foreground md:flex md:max-w-md"
+            onClick={() => setSearchOpen(true)}
+          >
+            <Search className="size-4 shrink-0" />
+            Search
+            <kbd className="pointer-events-none ml-auto hidden rounded border bg-muted px-1.5 py-0.5 text-[10px] font-medium sm:inline">
+              ⌘K
+            </kbd>
+          </Button>
+
           <Button
             variant="ghost"
             size="icon"
             className="md:hidden"
-            onClick={() => setMobileOpen(true)}
+            onClick={() => setSearchOpen(true)}
           >
-            <Menu className="size-5" />
-            <span className="sr-only">Open navigation</span>
+            <Search className="size-5" />
           </Button>
-          <SheetContent side="left" className="w-72 p-0">
-            {me && (
-              <PortalSidebar
-                role={me.role}
-                onNavigate={() => setMobileOpen(false)}
-              />
-            )}
-          </SheetContent>
-        </Sheet>
+        </div>
 
-        <Button
-          variant="outline"
-          className="hidden h-9 flex-1 items-center justify-start gap-2 text-muted-foreground md:flex md:max-w-md"
-          onClick={() => setSearchOpen(true)}
-        >
-          <Search className="size-4" />
-          Search
-          <kbd className="pointer-events-none ml-auto hidden rounded border bg-muted px-1.5 py-0.5 text-[10px] font-medium sm:inline">
-            ⌘K
-          </kbd>
-        </Button>
+        <div className="flex justify-center justify-self-center">
+          <PortalThemeLogo />
+        </div>
 
-        <Button
-          variant="ghost"
-          size="icon"
-          className="md:hidden"
-          onClick={() => setSearchOpen(true)}
-        >
-          <Search className="size-5" />
-        </Button>
-
-        <div className="ml-auto flex items-center gap-1">
+        <div className="flex items-center justify-end gap-1">
           <Button
             variant="ghost"
             size="icon"
@@ -126,8 +132,6 @@ export function PortalTopBar({ initialMe }: { initialMe: Me | null }) {
             <Sun className="size-5 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
             <Moon className="absolute size-5 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
           </Button>
-
-          <PortalThemeLogo />
 
           <DropdownMenu>
             <DropdownMenuTrigger
