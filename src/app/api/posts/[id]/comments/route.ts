@@ -70,8 +70,8 @@ export async function POST(
       await prisma.notification.create({
         data: {
           userId: post.authorId,
-          type: "comment",
-          title: "New comment on your post",
+          type: "feed_comment",
+          title: `${comment.author.name} has commented on your post`,
           body: preview || "(GIF or attachment)",
           link: "/home",
         },

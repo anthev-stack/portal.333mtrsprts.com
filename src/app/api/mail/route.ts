@@ -555,13 +555,15 @@ export async function POST(request: Request) {
 
       if (send && notifyUsers.length > 0) {
         await prisma.notification.createMany({
-          data: notifyUsers.map((u) => ({
-            userId: u.id,
-            type: "mail",
-            title: "New internal message",
-            body: subject,
-            link: "/mail",
-          })),
+          data: notifyUsers
+            .filter((u) => u.id !== session.id)
+            .map((u) => ({
+              userId: u.id,
+              type: "mail",
+              title: `You've received an email from ${sender.name}`,
+              body: `${sender.internalEmail} · ${subject}`,
+              link: "/mail",
+            })),
         });
         const awayRecipients = notifyUsers.filter(
           (r) => r.awayModeEnabled && r.id !== session.id,
@@ -594,8 +596,8 @@ export async function POST(request: Request) {
             data: {
               userId: session.id,
               type: "mail_auto_reply",
-              title: `Auto-reply from ${away.name}`,
-              body: `Automatic reply: ${subject}`,
+              title: `You've received an email from ${away.name}`,
+              body: away.internalEmail,
               link: "/mail",
             },
           });
@@ -632,13 +634,15 @@ export async function POST(request: Request) {
 
     if (send && notifyUsers.length > 0) {
       await prisma.notification.createMany({
-        data: notifyUsers.map((u) => ({
-          userId: u.id,
-          type: "mail",
-          title: "New internal message",
-          body: subject,
-          link: "/mail",
-        })),
+        data: notifyUsers
+          .filter((u) => u.id !== session.id)
+          .map((u) => ({
+            userId: u.id,
+            type: "mail",
+            title: `You've received an email from ${sender.name}`,
+            body: `${sender.internalEmail} · ${subject}`,
+            link: "/mail",
+          })),
       });
       const awayRecipients = notifyUsers.filter(
         (r) => r.awayModeEnabled && r.id !== session.id,
@@ -671,8 +675,8 @@ export async function POST(request: Request) {
           data: {
             userId: session.id,
             type: "mail_auto_reply",
-            title: `Auto-reply from ${away.name}`,
-            body: `Automatic reply: ${subject}`,
+            title: `You've received an email from ${away.name}`,
+            body: away.internalEmail,
             link: "/mail",
           },
         });

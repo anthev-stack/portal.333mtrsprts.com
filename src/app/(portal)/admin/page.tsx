@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Role } from "@prisma/client";
+import { AccountStatus, Role } from "@prisma/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -41,6 +41,7 @@ type UserRow = {
   role: Role;
   department: string | null;
   imageUrl: string | null;
+  accountStatus: AccountStatus;
 };
 
 type AuditRow = {
@@ -55,6 +56,7 @@ type AuditRow = {
 export default function AdminPage() {
   const [users, setUsers] = useState<UserRow[]>([]);
   const [logs, setLogs] = useState<AuditRow[]>([]);
+  const [meId, setMeId] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [internalEmail, setInternalEmail] = useState("");
@@ -81,10 +83,15 @@ export default function AdminPage() {
   }
 
   async function load() {
-    const [uRes, aRes] = await Promise.all([
+    const [meRes, uRes, aRes] = await Promise.all([
+      fetch("/api/auth/me", { credentials: "include" }),
       fetch("/api/admin/users"),
       fetch("/api/admin/audit?take=30"),
     ]);
+    if (meRes.ok) {
+      const data = (await meRes.json()) as { user: { id: string } };
+      setMeId(data.user.id);
+    }
     if (uRes.ok) {
       const data = (await uRes.json()) as { users: UserRow[] };
       setUsers(data.users);
@@ -169,6 +176,28 @@ export default function AdminPage() {
     toast.success("Reset email sent (check server logs in development)");
   }
 
+  async function accountAction(
+    id: string,
+    action: "pause" | "unpause" | "delete" | "restore",
+  ) {
+    if (action === "delete" && !window.confirm("Remove this account? They will not be able to sign in.")) {
+      return;
+    }
+    const res = await fetch(`/api/admin/users/${id}/account`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action }),
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      toast.error(body?.error ?? "Could not update account");
+      return;
+    }
+    toast.success("Account updated");
+    await load();
+  }
+
   return (
     <>
     <div className="space-y-8">
@@ -193,6 +222,7 @@ export default function AdminPage() {
                 <TableHead>Name</TableHead>
                 <TableHead>Internal</TableHead>
                 <TableHead>Role</TableHead>
+                <TableHead>Status</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -216,7 +246,56 @@ export default function AdminPage() {
                       {u.role}
                     </Badge>
                   </TableCell>
+                  <TableCell>
+                    {u.accountStatus === AccountStatus.ACTIVE && (
+                      <Badge variant="outline" className="font-normal">
+                        Active
+                      </Badge>
+                    )}
+                    {u.accountStatus === AccountStatus.PAUSED && (
+                      <Badge variant="secondary">Paused</Badge>
+                    )}
+                    {u.accountStatus === AccountStatus.DELETED && (
+                      <Badge variant="destructive">Removed</Badge>
+                    )}
+                  </TableCell>
                   <TableCell className="text-right space-x-2">
+                    {u.id !== meId && u.accountStatus === AccountStatus.ACTIVE && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void accountAction(u.id, "pause")}
+                      >
+                        Pause
+                      </Button>
+                    )}
+                    {u.id !== meId && u.accountStatus === AccountStatus.PAUSED && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void accountAction(u.id, "unpause")}
+                      >
+                        Unpause
+                      </Button>
+                    )}
+                    {u.id !== meId && u.accountStatus !== AccountStatus.DELETED && (
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        onClick={() => void accountAction(u.id, "delete")}
+                      >
+                        Remove
+                      </Button>
+                    )}
+                    {u.id !== meId && u.accountStatus === AccountStatus.DELETED && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void accountAction(u.id, "restore")}
+                      >
+                        Restore
+                      </Button>
+                    )}
                     <Button
                       size="sm"
                       variant="secondary"

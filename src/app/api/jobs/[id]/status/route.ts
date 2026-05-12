@@ -24,6 +24,7 @@ const bodySchema = z.discriminatedUnion("action", [
     action: z.literal("unable"),
     reason: z.string().trim().min(1, "Please explain why this could not be completed"),
   }),
+  z.object({ action: z.literal("undo") }),
 ]);
 
 export async function POST(
@@ -65,12 +66,19 @@ export async function POST(
   if (!assignment) {
     return NextResponse.json({ error: "You are not assigned to this job" }, { status: 404 });
   }
-  if (assignment.job.archivedAt != null) {
+
+  const action = parsed.data.action;
+  const undoRestoresArchivedReminder =
+    action === "undo" &&
+    assignment.job.isReminder &&
+    assignment.job.archivedAt != null &&
+    assignment.status === "COMPLETED";
+
+  if (assignment.job.archivedAt != null && !undoRestoresArchivedReminder) {
     return NextResponse.json({ error: "This job is archived" }, { status: 400 });
   }
 
   const now = new Date();
-  const { action } = parsed.data;
 
   if (assignment.status === "WAIVED") {
     return NextResponse.json(
@@ -79,7 +87,88 @@ export async function POST(
     );
   }
 
-  if (action === "start") {
+  if (action === "undo") {
+    if (assignment.job.isReminder) {
+      if (assignment.status === "COMPLETED" && assignment.job.archivedAt != null) {
+        await prisma.$transaction([
+          prisma.job.update({
+            where: { id: jobId },
+            data: { archivedAt: null },
+          }),
+          prisma.jobAssignment.update({
+            where: { id: assignment.id },
+            data: {
+              status: "NOT_STARTED",
+              startedAt: null,
+              completedAt: null,
+              unableReason: null,
+            },
+          }),
+        ]);
+      } else if (assignment.status === "IN_PROGRESS") {
+        await prisma.jobAssignment.update({
+          where: { id: assignment.id },
+          data: { status: "NOT_STARTED", startedAt: null },
+        });
+      } else {
+        return NextResponse.json(
+          { error: "Nothing to undo from this reminder" },
+          { status: 400 },
+        );
+      }
+    } else if (assignment.status === "IN_PROGRESS") {
+      await prisma.$transaction(async (tx) => {
+        await tx.jobAssignment.update({
+          where: { id: assignment.id },
+          data: { status: "NOT_STARTED", startedAt: null },
+        });
+        if (assignment.job.assignToEveryone) {
+          await tx.jobAssignment.updateMany({
+            where: { jobId, status: "WAIVED" },
+            data: {
+              status: "NOT_STARTED",
+              startedAt: null,
+              completedAt: null,
+              unableReason: null,
+            },
+          });
+        }
+        await tx.job.update({
+          where: { id: jobId },
+          data: { adminRejectionReason: null },
+        });
+      });
+    } else if (assignment.status === "COMPLETED") {
+      await prisma.jobAssignment.update({
+        where: { id: assignment.id },
+        data: {
+          status: "IN_PROGRESS",
+          completedAt: null,
+          startedAt: assignment.startedAt ?? now,
+        },
+      });
+    } else if (assignment.status === "UNABLE") {
+      await prisma.jobAssignment.update({
+        where: { id: assignment.id },
+        data: {
+          status: "NOT_STARTED",
+          unableReason: null,
+          completedAt: null,
+          startedAt: null,
+        },
+      });
+    } else if (assignment.status === "NOT_STARTED") {
+      return NextResponse.json(
+        { error: "This assignment is already at the first step" },
+        { status: 400 },
+      );
+    } else {
+      return NextResponse.json(
+        { error: "Undo is not available for this assignment state" },
+        { status: 400 },
+      );
+    }
+  } else if (action === "start") {
     if (assignment.job.isReminder) {
       return NextResponse.json(
         { error: "Reminders use Mark as done only — no separate start step." },

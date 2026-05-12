@@ -66,7 +66,7 @@ export function LoginForm() {
         transition={{ duration: 0.35, ease: "easeOut" }}
         className="w-full max-w-md"
       >
-        <div className="mb-8 flex flex-col items-center text-center">
+        <div className="mb-8 flex w-full flex-col items-center text-center">
           <div className="mb-4 flex h-20 w-full max-w-[220px] items-center justify-center">
             <img
               src="/images/logo-black.png"
@@ -83,7 +83,7 @@ export function LoginForm() {
               height={80}
             />
           </div>
-          <p className="text-4xl font-semibold tracking-tight sm:text-5xl">
+          <p className="w-full max-w-full text-balance text-center text-5xl font-semibold leading-[0.92] tracking-tight sm:text-6xl md:text-7xl">
             MOTORSPORTS
           </p>
         </div>

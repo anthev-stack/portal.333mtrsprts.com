@@ -24,6 +24,7 @@ export async function GET() {
       position: true,
       imageUrl: true,
       createdAt: true,
+      accountStatus: true,
     },
   });
 

@@ -57,6 +57,7 @@ export async function PATCH(
       position: true,
       imageUrl: true,
       createdAt: true,
+      accountStatus: true,
     },
   });
 

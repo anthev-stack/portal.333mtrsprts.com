@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { AccountStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { verifyPassword } from "@/lib/password";
 import { COOKIE_NAME, signSessionToken } from "@/lib/jwt";
@@ -46,6 +47,22 @@ export async function POST(request: Request) {
   const ok = await verifyPassword(parsed.data.password, user.passwordHash);
   if (!ok) {
     return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
+  }
+
+  if (user.accountStatus === AccountStatus.PAUSED) {
+    return NextResponse.json(
+      {
+        error:
+          "Your account is paused. Contact an administrator if you think this is a mistake.",
+      },
+      { status: 403 },
+    );
+  }
+  if (user.accountStatus === AccountStatus.DELETED) {
+    return NextResponse.json(
+      { error: "This account is no longer available." },
+      { status: 403 },
+    );
   }
 
   let token: string;

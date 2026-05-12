@@ -169,5 +169,28 @@ export async function POST(request: Request) {
     });
   });
 
+  try {
+    await notifyJobAssignments(job.title, userIds, isReminder);
+  } catch (e) {
+    console.error("[POST /api/jobs] notification createMany failed:", e);
+  }
+
   return NextResponse.json({ job: serializeJob(job) });
+}
+
+async function notifyJobAssignments(
+  jobTitle: string,
+  assigneeUserIds: string[],
+  isReminder: boolean,
+) {
+  if (isReminder) return;
+  const rows = assigneeUserIds.map((userId) => ({
+    userId,
+    type: "job_assigned",
+    title: "You've been assigned a job.",
+    body: jobTitle,
+    link: "/jobs",
+  }));
+  if (rows.length === 0) return;
+  await prisma.notification.createMany({ data: rows });
 }

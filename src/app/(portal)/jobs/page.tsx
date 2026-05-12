@@ -1133,6 +1133,44 @@ export default function JobsPage() {
                               Unable to complete
                             </Button>
                           )}
+                        {!isReminderJob(detail) && mineRow.status === "IN_PROGRESS" && (
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            onClick={() => void postStatus(detail.id, { action: "undo" })}
+                          >
+                            Undo start
+                          </Button>
+                        )}
+                        {!isReminderJob(detail) &&
+                          mineRow.status === "COMPLETED" &&
+                          detail.archivedAt == null && (
+                            <Button
+                              type="button"
+                              variant="secondary"
+                              onClick={() => void postStatus(detail.id, { action: "undo" })}
+                            >
+                              Undo done
+                            </Button>
+                          )}
+                        {!isReminderJob(detail) && mineRow.status === "UNABLE" && (
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            onClick={() => void postStatus(detail.id, { action: "undo" })}
+                          >
+                            Undo unable
+                          </Button>
+                        )}
+                        {isReminderJob(detail) && mineRow.status === "IN_PROGRESS" && (
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            onClick={() => void postStatus(detail.id, { action: "undo" })}
+                          >
+                            Undo step
+                          </Button>
+                        )}
                         </div>
                       </div>
                     )}

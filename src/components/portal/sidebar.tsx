@@ -2,35 +2,32 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, startTransition } from "react";
 import { motion } from "framer-motion";
 import {
   BookOpen,
   Briefcase,
   ClipboardList,
+  Headphones,
   Home,
   Inbox,
   Settings,
   Shield,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  PORTAL_SIDEBAR_COUNTS_EVENT,
+  type PortalSidebarCountsPayload,
+} from "@/lib/portal-sidebar-counts";
 import { PORTAL_MAIL_UNREAD_COUNT_EVENT } from "@/lib/mail-inbox-unread";
 import { PORTAL_JOBS_OPEN_COUNT_EVENT } from "@/lib/jobs-open-count";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
-async function fetchMailUnreadCount(): Promise<number | null> {
-  const res = await fetch("/api/mail/unread-count", { credentials: "include" });
+async function fetchSidebarCounts(): Promise<PortalSidebarCountsPayload | null> {
+  const res = await fetch("/api/portal/sidebar-counts", { credentials: "include" });
   if (!res.ok) return null;
-  const data = (await res.json()) as { count?: number };
-  return typeof data.count === "number" ? data.count : null;
-}
-
-async function fetchJobsOpenCount(): Promise<number | null> {
-  const res = await fetch("/api/jobs/open-count", { credentials: "include" });
-  if (!res.ok) return null;
-  const data = (await res.json()) as { count?: number };
-  return typeof data.count === "number" ? data.count : null;
+  return (await res.json()) as PortalSidebarCountsPayload;
 }
 
 const links = (
@@ -39,20 +36,30 @@ const links = (
   const base = [
     { href: "/home", label: "Home", icon: Home },
     { href: "/knowledgebase", label: "Knowledgebase", icon: BookOpen },
+    { href: "/customer-care", label: "Customer care", icon: Headphones },
     { href: "/mail", label: "Mail", icon: Inbox },
     { href: "/jobs", label: "Jobs", icon: Briefcase },
     { href: "/settings", label: "Settings", icon: Settings },
   ];
   if (role === "ADMIN") {
     return [
-      ...base.slice(0, 4),
+      ...base.slice(0, 5),
       { href: "/forms", label: "Forms", icon: ClipboardList },
-      base[4],
+      base[5],
       { href: "/admin", label: "Admin", icon: Shield },
     ];
   }
   return base;
 };
+
+function CountChip({ n }: { n: number }) {
+  if (n <= 0) return null;
+  return (
+    <span className="shrink-0 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums leading-none text-primary">
+      {n > 99 ? "99+" : n}
+    </span>
+  );
+}
 
 export function PortalSidebar({
   role,
@@ -63,34 +70,39 @@ export function PortalSidebar({
 }) {
   const pathname = usePathname();
   const items = links(role);
-  const [mailUnreadCount, setMailUnreadCount] = useState<number | null>(null);
-  const [jobsOpenCount, setJobsOpenCount] = useState<number | null>(null);
+  const [counts, setCounts] = useState<PortalSidebarCountsPayload | null>(null);
 
-  const refreshMailUnread = useCallback(async () => {
-    const n = await fetchMailUnreadCount();
-    if (n !== null) setMailUnreadCount(n);
-  }, []);
-
-  const refreshJobsOpen = useCallback(async () => {
-    const n = await fetchJobsOpenCount();
-    if (n !== null) setJobsOpenCount(n);
+  const applyCounts = useCallback((c: PortalSidebarCountsPayload) => {
+    setCounts(c);
   }, []);
 
   useEffect(() => {
-    void refreshMailUnread();
-    void refreshJobsOpen();
-  }, [pathname, refreshMailUnread, refreshJobsOpen]);
+    let cancelled = false;
+    void (async () => {
+      const c = await fetchSidebarCounts();
+      if (cancelled || !c) return;
+      startTransition(() => applyCounts(c));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [pathname, applyCounts]);
 
   useEffect(() => {
     const onVis = () => {
-      if (document.visibilityState === "visible") {
-        void refreshMailUnread();
-        void refreshJobsOpen();
-      }
+      if (document.visibilityState !== "visible") return;
+      void (async () => {
+        const c = await fetchSidebarCounts();
+        if (!c) return;
+        startTransition(() => applyCounts(c));
+      })();
     };
     const onFocus = () => {
-      void refreshMailUnread();
-      void refreshJobsOpen();
+      void (async () => {
+        const c = await fetchSidebarCounts();
+        if (!c) return;
+        startTransition(() => applyCounts(c));
+      })();
     };
     document.addEventListener("visibilitychange", onVis);
     window.addEventListener("focus", onFocus);
@@ -98,24 +110,57 @@ export function PortalSidebar({
       document.removeEventListener("visibilitychange", onVis);
       window.removeEventListener("focus", onFocus);
     };
-  }, [refreshMailUnread, refreshJobsOpen]);
+  }, [applyCounts]);
 
   useEffect(() => {
+    const onFull = (e: Event) => {
+      const ce = e as CustomEvent<PortalSidebarCountsPayload>;
+      if (
+        ce.detail &&
+        typeof ce.detail.mail === "number" &&
+        typeof ce.detail.jobs === "number" &&
+        typeof ce.detail.home === "number" &&
+        typeof ce.detail.knowledgebase === "number" &&
+        typeof ce.detail.customerCare === "number"
+      ) {
+        startTransition(() => applyCounts(ce.detail));
+      }
+    };
     const onMail = (e: Event) => {
       const ce = e as CustomEvent<{ count?: number }>;
-      if (typeof ce.detail?.count === "number") setMailUnreadCount(ce.detail.count);
+      if (typeof ce.detail?.count !== "number") return;
+      startTransition(() => {
+        setCounts((prev) => ({
+          mail: ce.detail.count!,
+          jobs: prev?.jobs ?? 0,
+          home: prev?.home ?? 0,
+          knowledgebase: prev?.knowledgebase ?? 0,
+          customerCare: prev?.customerCare ?? 0,
+        }));
+      });
     };
     const onJobs = (e: Event) => {
       const ce = e as CustomEvent<{ count?: number }>;
-      if (typeof ce.detail?.count === "number") setJobsOpenCount(ce.detail.count);
+      if (typeof ce.detail?.count !== "number") return;
+      startTransition(() => {
+        setCounts((prev) => ({
+          mail: prev?.mail ?? 0,
+          jobs: ce.detail.count!,
+          home: prev?.home ?? 0,
+          knowledgebase: prev?.knowledgebase ?? 0,
+          customerCare: prev?.customerCare ?? 0,
+        }));
+      });
     };
+    window.addEventListener(PORTAL_SIDEBAR_COUNTS_EVENT, onFull);
     window.addEventListener(PORTAL_MAIL_UNREAD_COUNT_EVENT, onMail);
     window.addEventListener(PORTAL_JOBS_OPEN_COUNT_EVENT, onJobs);
     return () => {
+      window.removeEventListener(PORTAL_SIDEBAR_COUNTS_EVENT, onFull);
       window.removeEventListener(PORTAL_MAIL_UNREAD_COUNT_EVENT, onMail);
       window.removeEventListener(PORTAL_JOBS_OPEN_COUNT_EVENT, onJobs);
     };
-  }, []);
+  }, [applyCounts]);
 
   return (
     <div className="flex h-full w-64 flex-col border-r bg-sidebar text-sidebar-foreground">
@@ -131,6 +176,13 @@ export function PortalSidebar({
           {items.map((item) => {
             const active =
               pathname === item.href || pathname.startsWith(`${item.href}/`);
+            const mailN = item.href === "/mail" ? (counts?.mail ?? 0) : 0;
+            const jobsN = item.href === "/jobs" ? (counts?.jobs ?? 0) : 0;
+            const homeN = item.href === "/home" ? (counts?.home ?? 0) : 0;
+            const kbN =
+              item.href === "/knowledgebase" ? (counts?.knowledgebase ?? 0) : 0;
+            const careN =
+              item.href === "/customer-care" ? (counts?.customerCare ?? 0) : 0;
             return (
               <Link
                 key={item.href}
@@ -155,20 +207,11 @@ export function PortalSidebar({
                     <item.icon className="size-4 shrink-0" />
                     <span className="truncate">{item.label}</span>
                   </span>
-                  {item.href === "/mail" &&
-                    mailUnreadCount !== null &&
-                    mailUnreadCount > 0 && (
-                      <span className="shrink-0 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums leading-none text-primary">
-                        {mailUnreadCount > 99 ? "99+" : mailUnreadCount}
-                      </span>
-                    )}
-                  {item.href === "/jobs" &&
-                    jobsOpenCount !== null &&
-                    jobsOpenCount > 0 && (
-                      <span className="shrink-0 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums leading-none text-primary">
-                        {jobsOpenCount > 99 ? "99+" : jobsOpenCount}
-                      </span>
-                    )}
+                  {item.href === "/home" && <CountChip n={homeN} />}
+                  {item.href === "/knowledgebase" && <CountChip n={kbN} />}
+                  {item.href === "/customer-care" && <CountChip n={careN} />}
+                  {item.href === "/mail" && <CountChip n={mailN} />}
+                  {item.href === "/jobs" && <CountChip n={jobsN} />}
                 </span>
               </Link>
             );

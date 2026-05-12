@@ -41,6 +41,12 @@ enum FormFieldType {
   EMAIL_FIELD
 }
 
+enum AccountStatus {
+  ACTIVE
+  PAUSED
+  DELETED
+}
+
 enum JobAssignmentStatus {
   NOT_STARTED
   IN_PROGRESS
@@ -72,6 +78,13 @@ model User {
   awayModeEnabled Boolean         @default(false)
   awayModeTemplate String?
 
+  accountStatus AccountStatus @default(ACTIVE)
+
+  /** Cleared sidebar Home badge; updated when the user opens the team feed. */
+  lastSeenHomeFeedAt DateTime @default(now())
+  /** Cleared sidebar Knowledgebase badge; updated when the user opens KB. */
+  lastSeenKnowledgebaseAt DateTime @default(now())
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -92,6 +105,8 @@ model User {
   jobsCreated        Job[]                      @relation("JobsCreated")
   jobAssignments     JobAssignment[]
   mailLabels         MailLabel[]
+  customerCareCreated CustomerCareRequest[] @relation("CustomerCareCreator")
+  customerCareAssignments CustomerCareAssignment[]
 }
 
 model PasswordResetToken {
@@ -354,6 +369,8 @@ model Notification {
   link      String?
   readAt    DateTime?
   createdAt DateTime  @default(now())
+
+  @@index([userId, readAt])
 }
 
 model AuditLog {
@@ -365,4 +382,34 @@ model AuditLog {
   entityId   String?
   metadata   Json?
   createdAt  DateTime @default(now())
+}
+
+model CustomerCareRequest {
+  id             String    @id @default(cuid())
+  createdById    String
+  createdBy      User      @relation("CustomerCareCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  customerName   String
+  customerEmail  String?
+  customerPhone  String?
+  query          String    @db.Text
+  resolvedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  assignments CustomerCareAssignment[]
+
+  @@index([createdById])
+  @@index([resolvedAt])
+}
+
+model CustomerCareAssignment {
+  id        String   @id @default(cuid())
+  requestId String
+  request   CustomerCareRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([requestId, userId])
+  @@index([userId])
 }

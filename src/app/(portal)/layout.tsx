@@ -4,6 +4,7 @@ import { getSession } from "@/lib/session";
 import { PortalMain } from "@/components/portal/portal-main";
 import { PortalSidebar } from "@/components/portal/sidebar";
 import { PortalTopBar } from "@/components/portal/top-bar";
+import { PortalLiveUpdates } from "@/components/portal/portal-live-updates";
 
 export const dynamic = "force-dynamic";
 
@@ -95,6 +96,7 @@ export default async function PortalLayout({
       </aside>
       <div className="flex min-w-0 flex-1 flex-col">
         <PortalTopBar initialMe={initialMe} />
+        <PortalLiveUpdates />
         <PortalMain>{children}</PortalMain>
       </div>
     </div>
