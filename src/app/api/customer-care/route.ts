@@ -7,34 +7,47 @@ import { stripHtml } from "@/lib/html";
 
 const createSchema = z.object({
   customerName: z.string().trim().min(1, "Customer name is required"),
-  customerEmail: z.string().optional(),
-  customerPhone: z.string().optional(),
+  /** Accept string, null, or missing (JSON null from clients must not break email-only submits). */
+  customerEmail: z.unknown().optional(),
+  customerPhone: z.unknown().optional(),
   query: z.string().trim().min(1, "Question or notes are required"),
   assigneeUserIds: z.array(z.string().min(1)).optional().default([]),
 });
 
 const listInclude = {
-  createdBy: { select: { id: true, name: true, internalEmail: true } },
+  createdBy: { select: { id: true, name: true, internalEmail: true, imageUrl: true } },
   assignments: {
-    include: { user: { select: { id: true, name: true, internalEmail: true } } },
+    include: {
+      user: { select: { id: true, name: true, internalEmail: true, imageUrl: true } },
+    },
   },
 } as const;
 
-export async function GET() {
+function strFromUnknown(v: unknown): string {
+  return typeof v === "string" ? v.trim() : "";
+}
+
+export async function GET(request: Request) {
   const session = await getSession();
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const { searchParams } = new URL(request.url);
+  const tab = searchParams.get("tab") === "resolved" ? "resolved" : "active";
+
   const rows = await prisma.customerCareRequest.findMany({
     where: {
       assignments: { some: { userId: session.id } },
+      ...(tab === "resolved"
+        ? { resolvedAt: { not: null } }
+        : { resolvedAt: null }),
     },
     orderBy: { createdAt: "desc" },
     include: listInclude,
   });
 
-  return NextResponse.json({ requests: rows });
+  return NextResponse.json({ requests: rows, tab });
 }
 
 export async function POST(request: Request) {
@@ -56,8 +69,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: msg }, { status: 400 });
   }
 
-  const emailRaw = parsed.data.customerEmail?.trim().toLowerCase() ?? "";
-  const phoneRaw = parsed.data.customerPhone?.trim() ?? "";
+  const emailRaw = strFromUnknown(parsed.data.customerEmail).toLowerCase();
+  const phoneRaw = strFromUnknown(parsed.data.customerPhone);
   let customerEmail: string | null = null;
   if (emailRaw) {
     const em = z.string().email().safeParse(emailRaw);

@@ -9,7 +9,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   Dialog,
   DialogContent,
@@ -17,9 +18,29 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { PORTAL_SIDEBAR_COUNTS_EVENT } from "@/lib/portal-sidebar-counts";
 
-type DirUser = { id: string; name: string; internalEmail: string; role: string };
+type DirUser = {
+  id: string;
+  name: string;
+  internalEmail: string;
+  role: string;
+  imageUrl: string | null;
+};
+
+type CareUser = {
+  id: string;
+  name: string;
+  internalEmail: string;
+  imageUrl: string | null;
+};
 
 type CareRequest = {
   id: string;
@@ -29,9 +50,16 @@ type CareRequest = {
   query: string;
   resolvedAt: string | null;
   createdAt: string;
-  createdBy: { id: string; name: string; internalEmail: string };
-  assignments: { user: { id: string; name: string; internalEmail: string } }[];
+  createdBy: CareUser;
+  assignments: { user: CareUser }[];
 };
+
+function formatCareDate(iso: string) {
+  return new Date(iso).toLocaleString(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
 
 async function emitSidebarCounts() {
   const res = await fetch("/api/portal/sidebar-counts", { credentials: "include" });
@@ -42,9 +70,35 @@ async function emitSidebarCounts() {
   );
 }
 
+function AssigneeAvatars({ assignments }: { assignments: CareRequest["assignments"] }) {
+  return (
+    <div className="flex shrink-0 items-center pl-0.5">
+      <div className="flex -space-x-1.5">
+        {assignments.map((a) => (
+          <Tooltip key={a.user.id}>
+            <TooltipTrigger className="inline-flex cursor-default rounded-full border-0 bg-transparent p-0">
+              <Avatar className="size-7 border-2 border-background ring-0">
+                <AvatarImage src={a.user.imageUrl?.trim() || undefined} alt="" />
+                <AvatarFallback className="text-[10px]">
+                  {a.user.name.slice(0, 2).toUpperCase()}
+                </AvatarFallback>
+              </Avatar>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="text-xs">
+              {a.user.name}
+            </TooltipContent>
+          </Tooltip>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function CustomerCarePage() {
   const [meId, setMeId] = useState<string | null>(null);
+  const [tab, setTab] = useState<"active" | "resolved">("active");
   const [requests, setRequests] = useState<CareRequest[]>([]);
+  const [listLoading, setListLoading] = useState(true);
   const [directory, setDirectory] = useState<DirUser[]>([]);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -55,19 +109,30 @@ export default function CustomerCarePage() {
   const [query, setQuery] = useState("");
   const [extraAssignees, setExtraAssignees] = useState<Record<string, boolean>>({});
 
-  const load = useCallback(async () => {
-    const [meRes, listRes, dirRes] = await Promise.all([
+  const loadList = useCallback(async (t: "active" | "resolved") => {
+    setListLoading(true);
+    setRequests([]);
+    try {
+      const res = await fetch(`/api/customer-care?tab=${t}`, { credentials: "include" });
+      if (!res.ok) {
+        setRequests([]);
+        return;
+      }
+      const d = (await res.json()) as { requests: CareRequest[] };
+      setRequests(d.requests);
+    } finally {
+      setListLoading(false);
+    }
+  }, []);
+
+  const loadStatic = useCallback(async () => {
+    const [meRes, dirRes] = await Promise.all([
       fetch("/api/auth/me", { credentials: "include" }),
-      fetch("/api/customer-care", { credentials: "include" }),
       fetch("/api/users/directory", { credentials: "include" }),
     ]);
     if (meRes.ok) {
       const d = (await meRes.json()) as { user: { id: string } };
       setMeId(d.user.id);
-    }
-    if (listRes.ok) {
-      const d = (await listRes.json()) as { requests: CareRequest[] };
-      setRequests(d.requests);
     }
     if (dirRes.ok) {
       const d = (await dirRes.json()) as { users: DirUser[] };
@@ -76,8 +141,12 @@ export default function CustomerCarePage() {
   }, []);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    void loadStatic();
+  }, [loadStatic]);
+
+  useEffect(() => {
+    void loadList(tab);
+  }, [tab, loadList]);
 
   function resetForm() {
     setCustomerName("");
@@ -88,22 +157,31 @@ export default function CustomerCarePage() {
   }
 
   async function submit() {
+    const emailT = customerEmail.trim();
+    const phoneT = customerPhone.trim();
+    if (!emailT && !phoneT) {
+      toast.error("Add at least an email or a mobile number for the customer.");
+      return;
+    }
+
     setBusy(true);
     try {
       const assigneeUserIds = Object.entries(extraAssignees)
         .filter(([, v]) => v)
         .map(([id]) => id);
+      const payload: Record<string, unknown> = {
+        customerName,
+        query,
+        assigneeUserIds,
+      };
+      if (emailT) payload.customerEmail = emailT;
+      if (phoneT) payload.customerPhone = phoneT;
+
       const res = await fetch("/api/customer-care", {
         method: "POST",
         credentials: "include",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          customerName,
-          customerEmail: customerEmail.trim() || null,
-          customerPhone: customerPhone.trim() || null,
-          query,
-          assigneeUserIds,
-        }),
+        body: JSON.stringify(payload),
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
@@ -113,7 +191,8 @@ export default function CustomerCarePage() {
       toast.success("Customer care entry logged");
       setOpen(false);
       resetForm();
-      await load();
+      setTab("active");
+      await loadList("active");
       await emitSidebarCounts();
     } finally {
       setBusy(false);
@@ -124,20 +203,119 @@ export default function CustomerCarePage() {
     const res = await fetch(`/api/customer-care/${id}`, {
       method: "PATCH",
       credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ intent: "resolve" }),
     });
     if (!res.ok) {
       toast.error("Could not mark resolved");
       return;
     }
     toast.success("Marked resolved");
-    await load();
+    await loadList(tab);
+    await emitSidebarCounts();
+  }
+
+  async function reopen(id: string) {
+    const res = await fetch(`/api/customer-care/${id}`, {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ intent: "reopen" }),
+    });
+    if (!res.ok) {
+      toast.error("Could not reopen");
+      return;
+    }
+    toast.success("Reopened");
+    await loadList(tab);
     await emitSidebarCounts();
   }
 
   const others = directory.filter((u) => u.id !== meId);
 
+  const emptyMessage =
+    tab === "active"
+      ? "No open entries. Create one when a customer needs a callback or research."
+      : "No resolved entries yet.";
+
+  function renderCards() {
+    if (listLoading) {
+      return (
+        <p className="text-sm text-muted-foreground">Loading…</p>
+      );
+    }
+    if (requests.length === 0) {
+      return (
+        <Card>
+          <CardContent className="py-8 text-center text-sm text-muted-foreground">
+            {emptyMessage}
+          </CardContent>
+        </Card>
+      );
+    }
+    return (
+      <div className="space-y-2">
+        {requests.map((r) => (
+          <Card key={r.id} className="overflow-hidden py-0 shadow-sm">
+            <CardContent className="flex flex-col gap-2 p-3 sm:flex-row sm:items-start sm:gap-3">
+              <div className="min-w-0 flex-1 space-y-1.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="truncate font-medium leading-tight">{r.customerName}</span>
+                  {r.resolvedAt ? (
+                    <Badge variant="secondary" className="h-5 shrink-0 px-1.5 text-[10px]">
+                      Resolved
+                    </Badge>
+                  ) : (
+                    <Badge className="h-5 shrink-0 px-1.5 text-[10px]">Open</Badge>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
+                  <span>Created {formatCareDate(r.createdAt)}</span>
+                  {r.resolvedAt && (
+                    <span>Resolved {formatCareDate(r.resolvedAt)}</span>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
+                  {r.customerEmail && <span className="truncate">Email: {r.customerEmail}</span>}
+                  {r.customerPhone && <span>Mobile: {r.customerPhone}</span>}
+                </div>
+                <p className="line-clamp-2 whitespace-pre-wrap text-xs leading-snug text-foreground">
+                  {r.query}
+                </p>
+                <p className="text-[10px] text-muted-foreground">
+                  Logged by {r.createdBy.name}
+                </p>
+              </div>
+              <div className="flex shrink-0 flex-row items-center gap-3 sm:flex-col sm:items-end">
+                <div className="flex flex-col items-end gap-1">
+                  <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    Assigned
+                  </span>
+                  <AssigneeAvatars assignments={r.assignments} />
+                </div>
+                <div className="flex flex-wrap justify-end gap-1.5">
+                  {!r.resolvedAt && (
+                    <Button size="sm" className="h-7 text-xs" variant="outline" onClick={() => void resolve(r.id)}>
+                      Mark resolved
+                    </Button>
+                  )}
+                  {r.resolvedAt && (
+                    <Button size="sm" className="h-7 text-xs" variant="secondary" onClick={() => void reopen(r.id)}>
+                      Undo resolve
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-8">
+    <TooltipProvider delay={200}>
+    <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Customer care</h1>
@@ -152,51 +330,22 @@ export default function CustomerCarePage() {
         </Button>
       </div>
 
-      <div className="grid gap-4">
-        {requests.length === 0 ? (
-          <Card>
-            <CardContent className="py-10 text-center text-sm text-muted-foreground">
-              No entries yet. Create one when a customer needs a callback or research.
-            </CardContent>
-          </Card>
-        ) : (
-          requests.map((r) => (
-            <Card key={r.id}>
-              <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-2 space-y-0 pb-2">
-                <div>
-                  <CardTitle className="text-base">{r.customerName}</CardTitle>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Logged by {r.createdBy.name} · {new Date(r.createdAt).toLocaleString()}
-                  </p>
-                </div>
-                {r.resolvedAt ? (
-                  <Badge variant="secondary">Resolved</Badge>
-                ) : (
-                  <Badge variant="default">Open</Badge>
-                )}
-              </CardHeader>
-              <CardContent className="space-y-3 text-sm">
-                <div className="flex flex-wrap gap-x-4 gap-y-1 text-muted-foreground">
-                  {r.customerEmail && <span>Email: {r.customerEmail}</span>}
-                  {r.customerPhone && <span>Mobile: {r.customerPhone}</span>}
-                </div>
-                <p className="whitespace-pre-wrap text-foreground">{r.query}</p>
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground">Assigned</p>
-                  <p className="text-xs">
-                    {r.assignments.map((a) => a.user.name).join(", ")}
-                  </p>
-                </div>
-                {!r.resolvedAt && (
-                  <Button size="sm" variant="outline" onClick={() => void resolve(r.id)}>
-                    Mark resolved
-                  </Button>
-                )}
-              </CardContent>
-            </Card>
-          ))
-        )}
-      </div>
+      <Tabs
+        value={tab}
+        onValueChange={(v) => setTab(v as "active" | "resolved")}
+        className="space-y-4"
+      >
+        <TabsList>
+          <TabsTrigger value="active">Active</TabsTrigger>
+          <TabsTrigger value="resolved">Resolved</TabsTrigger>
+        </TabsList>
+        <TabsContent value="active" className="mt-4 space-y-2 outline-none">
+          {renderCards()}
+        </TabsContent>
+        <TabsContent value="resolved" className="mt-4 space-y-2 outline-none">
+          {renderCards()}
+        </TabsContent>
+      </Tabs>
 
       <Dialog
         open={open}
@@ -274,6 +423,10 @@ export default function CustomerCarePage() {
                           }))
                         }
                       />
+                      <Avatar className="size-7">
+                        <AvatarImage src={u.imageUrl?.trim() || undefined} alt="" />
+                        <AvatarFallback className="text-[10px]">{u.name.slice(0, 2).toUpperCase()}</AvatarFallback>
+                      </Avatar>
                       <span>
                         {u.name}{" "}
                         <span className="text-muted-foreground">({u.internalEmail})</span>
@@ -295,5 +448,6 @@ export default function CustomerCarePage() {
         </DialogContent>
       </Dialog>
     </div>
+    </TooltipProvider>
   );
 }
