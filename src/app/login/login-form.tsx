@@ -65,16 +65,31 @@ export function LoginForm() {
         transition={{ duration: 0.35, ease: "easeOut" }}
         className="w-full max-w-md"
       >
+        <div className="mb-8 flex flex-col items-center text-center">
+          <div className="mb-4 flex h-20 w-full max-w-[220px] items-center justify-center">
+            <img
+              src="/images/logo-black.png"
+              alt=""
+              className="max-h-20 w-auto max-w-full object-contain dark:hidden"
+              width={220}
+              height={80}
+            />
+            <img
+              src="/images/logo-white.png"
+              alt=""
+              className="hidden max-h-20 w-auto max-w-full object-contain dark:block"
+              width={220}
+              height={80}
+            />
+          </div>
+          <p className="text-xl font-semibold tracking-tight">MOTORSPORTS</p>
+          <h1 className="text-xl font-semibold tracking-tight">STAFF PORTAL</h1>
+        </div>
         <Card className="border-border/80 shadow-lg shadow-black/5">
           <CardHeader className="items-center space-y-4 text-center">
-            <div>
-              <h1 className="text-xl font-semibold tracking-tight">
-                333 MOTORSPORTS STAFF PORTAL
-              </h1>
-              <CardDescription className="mt-1">
-                Sign in with your internal work email.
-              </CardDescription>
-            </div>
+            <CardDescription>
+              Sign in with your internal work email.
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <form className="space-y-4" onSubmit={onSubmit}>

@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { PortalThemeLogo } from "@/components/portal/logo";
 import { PortalSidebar } from "@/components/portal/sidebar";
 import { SearchCommand } from "@/components/portal/search-command";
 
@@ -125,6 +126,8 @@ export function PortalTopBar({ initialMe }: { initialMe: Me | null }) {
             <Sun className="size-5 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
             <Moon className="absolute size-5 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
           </Button>
+
+          <PortalThemeLogo />
 
           <DropdownMenu>
             <DropdownMenuTrigger
