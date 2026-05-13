@@ -49,6 +49,7 @@ services:
       MAIL_FROM: ${MAIL_FROM:-333 Motorsports <noreply@333mtrsprts.com>}
       MAIL_REPLY_TO_SENDER: ${MAIL_REPLY_TO_SENDER:-}
       MAIL_DELIVERY_TARGET: ${MAIL_DELIVERY_TARGET:-external}
+      NEXT_PUBLIC_GIPHY_API_KEY: ${NEXT_PUBLIC_GIPHY_API_KEY:-}
     depends_on:
       db:
         condition: service_healthy
