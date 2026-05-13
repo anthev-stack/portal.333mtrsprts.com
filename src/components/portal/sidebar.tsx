@@ -13,6 +13,7 @@ import {
   Inbox,
   Settings,
   Shield,
+  Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -43,7 +44,10 @@ function navSections(role: "STAFF" | "ADMIN"): { primary: NavItem[]; footer: Nav
   if (role === "ADMIN") {
     primary.push({ href: "/forms", label: "Forms", icon: ClipboardList });
   }
-  const footer: NavItem[] = [{ href: "/settings", label: "Settings", icon: Settings }];
+  const footer: NavItem[] = [
+    { href: "/settings", label: "Settings", icon: Settings },
+    { href: "/team", label: "Team", icon: Users },
+  ];
   if (role === "ADMIN") {
     footer.push({ href: "/admin", label: "Admin", icon: Shield });
   }

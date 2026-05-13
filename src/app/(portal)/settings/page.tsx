@@ -32,6 +32,7 @@ type User = {
   emergencyPhone: string | null;
   position: string | null;
   department: string | null;
+  profileBlurp: string | null;
   imageUrl: string | null;
   themePreference: ThemePreference;
   notifyEmail: boolean;
@@ -62,6 +63,20 @@ export default function SettingsPage() {
     return data.url;
   }
 
+  async function persistProfilePhotoUrl(url: string | null) {
+    const res = await fetch("/api/me", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ imageUrl: url }),
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(body?.error ?? "Could not save profile photo");
+    }
+    return (await res.json()) as { user: User };
+  }
+
   useEffect(() => {
     void (async () => {
       const res = await fetch("/api/auth/me");
@@ -85,6 +100,7 @@ export default function SettingsPage() {
         emergencyPhone: user.emergencyPhone,
         position: user.position,
         department: user.department,
+        profileBlurp: user.profileBlurp?.trim() ? user.profileBlurp.trim() : null,
         imageUrl: user.imageUrl,
         themePreference: user.themePreference,
         notifyEmail: user.notifyEmail,
@@ -190,6 +206,22 @@ export default function SettingsPage() {
             />
           </div>
           <div className="space-y-2 md:col-span-2">
+            <Label htmlFor="blurp">Team directory intro</Label>
+            <Textarea
+              id="blurp"
+              rows={3}
+              maxLength={600}
+              placeholder="A short line about yourself — shown on the Team page."
+              value={user.profileBlurp ?? ""}
+              onChange={(e) =>
+                setUser({ ...user, profileBlurp: e.target.value || null })
+              }
+            />
+            <p className="text-xs text-muted-foreground">
+              Optional. Up to 600 characters. Visible to colleagues on Team.
+            </p>
+          </div>
+          <div className="space-y-2 md:col-span-2">
             <Label htmlFor="ec">Emergency contact</Label>
             <Input
               id="ec"
@@ -242,8 +274,10 @@ export default function SettingsPage() {
                       setPhotoBusy(true);
                       try {
                         const url = await uploadProfileImage(f);
-                        setUser({ ...user, imageUrl: url });
-                        toast.success("Photo uploaded — save to keep it");
+                        const { user: updated } = await persistProfilePhotoUrl(url);
+                        setUser(updated);
+                        toast.success("Profile photo saved");
+                        router.refresh();
                       } catch (err) {
                         toast.error(
                           err instanceof Error ? err.message : "Upload failed",
@@ -254,19 +288,32 @@ export default function SettingsPage() {
                     })();
                   }}
                 />
-                <div className="space-y-2">
-                  <Label htmlFor="img" className="text-muted-foreground">
-                    Or paste image URL
-                  </Label>
-                  <Input
-                    id="img"
-                    value={user.imageUrl ?? ""}
-                    onChange={(e) =>
-                      setUser({ ...user, imageUrl: e.target.value || null })
-                    }
-                    placeholder="https://… or /uploads/…"
-                  />
-                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="self-start"
+                  disabled={photoBusy || !user.imageUrl}
+                  onClick={() => {
+                    void (async () => {
+                      setPhotoBusy(true);
+                      try {
+                        const { user: updated } = await persistProfilePhotoUrl(null);
+                        setUser(updated);
+                        toast.success("Profile photo removed");
+                        router.refresh();
+                      } catch (err) {
+                        toast.error(
+                          err instanceof Error ? err.message : "Could not remove photo",
+                        );
+                      } finally {
+                        setPhotoBusy(false);
+                      }
+                    })();
+                  }}
+                >
+                  Remove profile photo
+                </Button>
               </div>
             </div>
           </div>

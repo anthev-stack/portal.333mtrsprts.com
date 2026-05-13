@@ -70,6 +70,12 @@ model User {
   position         String?
   department       String?
   imageUrl         String?
+  /** Short self-intro shown on the Team directory. */
+  profileBlurp     String?         @db.VarChar(600)
+  /** Display order on the Team page (lower first). Admins set via drag-and-drop. */
+  teamDirectorySortOrder Int       @default(0)
+  /** When true, colleagues can see phone, address, and emergency contacts on the Team tab. */
+  teamStaffContactVisible Boolean @default(false)
 
   themePreference ThemePreference @default(SYSTEM)
   notifyEmail     Boolean         @default(true)

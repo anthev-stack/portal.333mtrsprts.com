@@ -14,6 +14,7 @@ const patchSchema = z.object({
   emergencyPhone: z.string().nullable().optional(),
   position: z.string().nullable().optional(),
   department: z.string().nullable().optional(),
+  profileBlurp: z.string().max(600).nullable().optional(),
   imageUrl: z.string().max(2000).nullable().optional(),
   themePreference: z.nativeEnum(ThemePreference).optional(),
   notifyEmail: z.boolean().optional(),
@@ -78,6 +79,7 @@ export async function PATCH(request: Request) {
   }
   if (data.position !== undefined) update.position = data.position;
   if (data.department !== undefined) update.department = data.department;
+  if (data.profileBlurp !== undefined) update.profileBlurp = data.profileBlurp;
   if (data.imageUrl !== undefined) update.imageUrl = data.imageUrl;
   if (data.themePreference !== undefined) {
     update.themePreference = data.themePreference;
@@ -110,6 +112,7 @@ export async function PATCH(request: Request) {
       emergencyPhone: true,
       position: true,
       department: true,
+      profileBlurp: true,
       imageUrl: true,
       themePreference: true,
       notifyEmail: true,

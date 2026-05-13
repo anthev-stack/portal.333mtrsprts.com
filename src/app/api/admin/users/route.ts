@@ -13,7 +13,7 @@ export async function GET() {
   }
 
   const users = await prisma.user.findMany({
-    orderBy: { name: "asc" },
+    orderBy: [{ teamDirectorySortOrder: "asc" }, { name: "asc" }],
     select: {
       id: true,
       name: true,
@@ -25,6 +25,8 @@ export async function GET() {
       imageUrl: true,
       createdAt: true,
       accountStatus: true,
+      teamStaffContactVisible: true,
+      teamDirectorySortOrder: true,
     },
   });
 
@@ -72,6 +74,11 @@ export async function POST(request: Request) {
 
   const passwordHash = await hashPassword(parsed.data.password);
 
+  const maxRow = await prisma.user.aggregate({
+    _max: { teamDirectorySortOrder: true },
+  });
+  const nextOrder = (maxRow._max.teamDirectorySortOrder ?? -1) + 1;
+
   const imageUrl =
     parsed.data.imageUrl === undefined || parsed.data.imageUrl === null
       ? undefined
@@ -86,6 +93,7 @@ export async function POST(request: Request) {
         externalEmail: parsed.data.externalEmail.toLowerCase().trim(),
         passwordHash,
         role: parsed.data.role ?? Role.STAFF,
+        teamDirectorySortOrder: nextOrder,
         ...(imageUrl !== undefined ? { imageUrl } : {}),
       },
       select: {

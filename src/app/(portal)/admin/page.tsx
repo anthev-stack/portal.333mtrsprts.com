@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, startTransition } from "react";
 import { toast } from "sonner";
 import { AccountStatus, Role } from "@prisma/client";
 import { Button } from "@/components/ui/button";
@@ -32,6 +32,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Switch } from "@/components/ui/switch";
 
 type UserRow = {
   id: string;
@@ -40,8 +41,10 @@ type UserRow = {
   externalEmail: string;
   role: Role;
   department: string | null;
+  position: string | null;
   imageUrl: string | null;
   accountStatus: AccountStatus;
+  teamStaffContactVisible: boolean;
 };
 
 type AuditRow = {
@@ -103,7 +106,9 @@ export default function AdminPage() {
   }
 
   useEffect(() => {
-    void load();
+    startTransition(() => {
+      void load();
+    });
   }, []);
 
   async function createUser() {
@@ -165,6 +170,25 @@ export default function AdminPage() {
     }
   }
 
+  async function setTeamContactVisible(id: string, value: boolean) {
+    const res = await fetch(`/api/admin/users/${id}`, {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ teamStaffContactVisible: value }),
+    });
+    if (!res.ok) {
+      toast.error("Could not update Team contact visibility");
+      return;
+    }
+    toast.success(
+      value
+        ? "Colleagues can see this user’s contact details on the Team tab."
+        : "Contact details hidden on the Team tab.",
+    );
+    await load();
+  }
+
   async function requestReset(id: string) {
     const res = await fetch(`/api/admin/users/${id}/password-reset`, {
       method: "POST",
@@ -223,6 +247,9 @@ export default function AdminPage() {
                 <TableHead>Internal</TableHead>
                 <TableHead>Role</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead className="w-[7.5rem] text-center">
+                  <span className="text-xs font-medium leading-tight">Staff contact on Team</span>
+                </TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -258,6 +285,16 @@ export default function AdminPage() {
                     {u.accountStatus === AccountStatus.DELETED && (
                       <Badge variant="destructive">Removed</Badge>
                     )}
+                  </TableCell>
+                  <TableCell className="text-center">
+                    <div className="flex flex-col items-center gap-1">
+                      <Switch
+                        checked={u.teamStaffContactVisible}
+                        disabled={u.accountStatus !== AccountStatus.ACTIVE}
+                        onCheckedChange={(v) => void setTeamContactVisible(u.id, v === true)}
+                      />
+                      <span className="text-[10px] text-muted-foreground">Phone & address</span>
+                    </div>
                   </TableCell>
                   <TableCell className="text-right space-x-2">
                     {u.id !== meId && u.accountStatus === AccountStatus.ACTIVE && (
@@ -516,17 +553,6 @@ export default function AdminPage() {
                   }
                 })();
               }}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="photo-url">Image URL (optional)</Label>
-            <Input
-              id="photo-url"
-              value={photoDraftUrl ?? ""}
-              onChange={(e) =>
-                setPhotoDraftUrl(e.target.value ? e.target.value : null)
-              }
-              placeholder="https://… or /uploads/…"
             />
           </div>
           <Button

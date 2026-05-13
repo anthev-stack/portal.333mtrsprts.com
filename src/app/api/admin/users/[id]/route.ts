@@ -6,6 +6,7 @@ import { writeAuditLog } from "@/lib/audit";
 
 const patchSchema = z.object({
   imageUrl: z.string().max(2000).nullable().optional(),
+  teamStaffContactVisible: z.boolean().optional(),
 });
 
 export async function PATCH(
@@ -41,11 +42,18 @@ export async function PATCH(
 
   const imageUrl =
     parsed.data.imageUrl === undefined ? undefined : parsed.data.imageUrl;
+  const teamStaffContactVisible =
+    parsed.data.teamStaffContactVisible === undefined
+      ? undefined
+      : parsed.data.teamStaffContactVisible;
 
   const user = await prisma.user.update({
     where: { id },
     data: {
       ...(imageUrl !== undefined ? { imageUrl } : {}),
+      ...(teamStaffContactVisible !== undefined
+        ? { teamStaffContactVisible }
+        : {}),
     },
     select: {
       id: true,
@@ -58,6 +66,7 @@ export async function PATCH(
       imageUrl: true,
       createdAt: true,
       accountStatus: true,
+      teamStaffContactVisible: true,
     },
   });
 
@@ -66,7 +75,12 @@ export async function PATCH(
     action: "user.update",
     entityType: "User",
     entityId: user.id,
-    metadata: { fields: imageUrl !== undefined ? ["imageUrl"] : [] },
+    metadata: {
+      fields: [
+        ...(imageUrl !== undefined ? ["imageUrl"] : []),
+        ...(teamStaffContactVisible !== undefined ? ["teamStaffContactVisible"] : []),
+      ],
+    },
   });
 
   return NextResponse.json({ user });
