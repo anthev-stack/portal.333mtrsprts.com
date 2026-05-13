@@ -22,7 +22,6 @@ export async function GET() {
       emergencyContact: true,
       emergencyPhone: true,
       position: true,
-      position: true,
       department: true,
       profileBlurp: true,
       themePreference: true,
