@@ -153,6 +153,7 @@ function StaticMemberCard({ member }: { member: TeamMember }) {
 export default function TeamPage() {
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [viewerIsAdmin, setViewerIsAdmin] = useState(false);
+  const [viewerCanViewStaffContacts, setViewerCanViewStaffContacts] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
@@ -166,9 +167,11 @@ export default function TeamPage() {
       const data = (await res.json()) as {
         members: TeamMember[];
         viewerIsAdmin: boolean;
+        viewerCanViewStaffContacts: boolean;
       };
       setMembers(data.members);
       setViewerIsAdmin(data.viewerIsAdmin);
+      setViewerCanViewStaffContacts(data.viewerCanViewStaffContacts);
     } finally {
       setLoading(false);
     }
@@ -227,6 +230,22 @@ export default function TeamPage() {
         </p>
       </div>
 
+      {!loading && !viewerCanViewStaffContacts ? (
+        <p className="rounded-md border border-dashed bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+          You are not currently allowed to see teammates&apos; phone, address, or emergency details
+          here. Ask an admin to enable{" "}
+          <span className="font-medium text-foreground">View all staff contacts on Team</span> for
+          your account if you need that access.
+        </p>
+      ) : null}
+
+      {!loading && viewerCanViewStaffContacts ? (
+        <p className="rounded-md border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-xs text-muted-foreground">
+          <span className="font-medium text-foreground">Staff contact access:</span> you can see
+          phone, address, and emergency details for everyone listed below (where they have been
+          entered in Settings).
+        </p>
+      ) : null}
       {loading ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
       ) : members.length === 0 ? (

@@ -74,8 +74,8 @@ model User {
   profileBlurp     String?         @db.VarChar(600)
   /** Display order on the Team page (lower first). Admins set via drag-and-drop. */
   teamDirectorySortOrder Int       @default(0)
-  /** When true, colleagues can see phone, address, and emergency contacts on the Team tab. */
-  teamStaffContactVisible Boolean @default(false)
+  /** When true, this user may see phone, address, and emergency details for everyone on the Team tab (set by admin). */
+  canViewTeamStaffContacts Boolean @default(false)
 
   themePreference ThemePreference @default(SYSTEM)
   notifyEmail     Boolean         @default(true)
@@ -230,11 +230,19 @@ model InternalMessage {
   sentAt           DateTime?
   /** Sender moved this sent message to Trash (hidden from Sent until restored or purged). */
   senderTrashedAt  DateTime?
+  /** Root message id for threading; null = this row is the root of its thread. */
+  threadRootId     String?
+  threadRoot       InternalMessage?  @relation("MailThreadRoot", fields: [threadRootId], references: [id], onDelete: SetNull)
+  threadReplies    InternalMessage[] @relation("MailThreadRoot")
+  /** When false, the sender's copy is hidden from Sent (used for replies; new mail stays true). */
+  includeInSenderSent Boolean @default(true)
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 
   recipients  InternalMessageRecipient[]
   attachments Attachment[]
+
+  @@index([threadRootId])
 }
 
 model InternalMessageRecipient {

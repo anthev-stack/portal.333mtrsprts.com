@@ -3,12 +3,19 @@ import { AccountStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 
-/** Active staff for the Team directory (public fields + optional contact block). */
+/** Active staff for the Team directory. Contact block only if the viewer has admin-granted access. */
 export async function GET() {
   const session = await getSession();
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  const viewer = await prisma.user.findUnique({
+    where: { id: session.id },
+    select: { canViewTeamStaffContacts: true, role: true },
+  });
+
+  const showStaffContacts = viewer?.canViewTeamStaffContacts === true;
 
   const users = await prisma.user.findMany({
     where: { accountStatus: AccountStatus.ACTIVE },
@@ -22,7 +29,6 @@ export async function GET() {
       profileBlurp: true,
       imageUrl: true,
       role: true,
-      teamStaffContactVisible: true,
       phone: true,
       address: true,
       emergencyContact: true,
@@ -39,7 +45,7 @@ export async function GET() {
     profileBlurp: u.profileBlurp,
     imageUrl: u.imageUrl,
     role: u.role,
-    contact: u.teamStaffContactVisible
+    contact: showStaffContacts
       ? {
           phone: u.phone,
           address: u.address,
@@ -52,5 +58,6 @@ export async function GET() {
   return NextResponse.json({
     members,
     viewerIsAdmin: session.role === "ADMIN",
+    viewerCanViewStaffContacts: showStaffContacts,
   });
 }

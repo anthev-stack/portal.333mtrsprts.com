@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { Role } from "@prisma/client";
+import { Role, AccountStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { hashPassword } from "@/lib/password";
@@ -13,6 +13,9 @@ export async function GET() {
   }
 
   const users = await prisma.user.findMany({
+    where: {
+      accountStatus: { in: [AccountStatus.ACTIVE, AccountStatus.PAUSED] },
+    },
     orderBy: [{ teamDirectorySortOrder: "asc" }, { name: "asc" }],
     select: {
       id: true,
@@ -25,7 +28,7 @@ export async function GET() {
       imageUrl: true,
       createdAt: true,
       accountStatus: true,
-      teamStaffContactVisible: true,
+      canViewTeamStaffContacts: true,
       teamDirectorySortOrder: true,
     },
   });

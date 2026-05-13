@@ -4,6 +4,7 @@ import type { MessageStatus, RecipientKind } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { countInboxUnreadForUser } from "@/lib/mail-inbox-unread";
+import { normalizeReplySubject } from "@/lib/mail-subject";
 import { deliverInternalMessageCopy } from "@/lib/transactional-mail";
 
 /** Prisma enum values as literals — avoids runtime `undefined` from `RecipientKind` / `MessageStatus` imports under Turbopack. */
@@ -72,8 +73,17 @@ const postSchema = z
       .nullish()
       .transform((v) => v ?? []),
     send: z.boolean().optional().default(false),
+    /** When sending, links this message as a reply (threaded; omitted from sender Sent). */
+    inReplyToMessageId: z.string().optional(),
   })
   .superRefine((data, ctx) => {
+    if (data.inReplyToMessageId && !data.send) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Cannot save a reply as draft with this endpoint",
+        path: ["inReplyToMessageId"],
+      });
+    }
     const recipientCount =
       data.recipientEmails.length +
       data.ccEmails.length +
@@ -190,6 +200,7 @@ export async function GET(request: Request) {
         senderId: session.id,
         status: ST.SENT,
         senderTrashedAt: null,
+        includeInSenderSent: true,
       },
       orderBy: { sentAt: "desc" },
       include: {
@@ -302,16 +313,26 @@ export async function GET(request: Request) {
 
   const inboxWhere = {
     status: ST.SENT,
-    recipients: {
-      some: {
-        archived: false,
-        trashedAt: null,
-        OR: [
-          { userId: session.id },
-          { email: { equals: session.internalEmail, mode: "insensitive" as const } },
-        ],
+    OR: [
+      {
+        recipients: {
+          some: {
+            archived: false,
+            trashedAt: null,
+            OR: [
+              { userId: session.id },
+              { email: { equals: session.internalEmail, mode: "insensitive" as const } },
+            ],
+          },
+        },
       },
-    },
+      {
+        senderId: session.id,
+        senderTrashedAt: null,
+        includeInSenderSent: false,
+        threadRootId: { not: null },
+      },
+    ],
   };
 
   const inboxIncludeBase = {
@@ -342,32 +363,36 @@ export async function GET(request: Request) {
     }
   })();
 
-  const messages = inbox.map((m) => {
-    const myRow = m.recipients.find(
-      (r) =>
-        r.userId === session.id ||
-        r.email.toLowerCase() === session.internalEmail.toLowerCase(),
-    );
-    const rowWithLabels = myRow as
-      | (typeof myRow & {
-          mailLabels?: { label: { id: string; name: string; color: string } }[];
-        })
-      | undefined;
-    return {
-      ...m,
-      recipients: filterRecipientsForViewer(
-        m.recipients,
-        { id: session.id, internalEmail: session.internalEmail },
-        m.senderId === session.id,
-      ),
-      viewerReadAt: myRow?.readAt ?? null,
-      viewerLabels: (rowWithLabels?.mailLabels ?? []).map((ml) => ({
-        id: ml.label.id,
-        name: ml.label.name,
-        color: ml.label.color,
-      })),
-    };
-  });
+    const messages = inbox.map((m) => {
+      const myRow = m.recipients.find(
+        (r) =>
+          r.userId === session.id ||
+          r.email.toLowerCase() === session.internalEmail.toLowerCase(),
+      );
+      const viewerIsSenderOnly =
+        m.senderId === session.id && !myRow && m.includeInSenderSent === false;
+      const rowWithLabels = myRow as
+        | (typeof myRow & {
+            mailLabels?: { label: { id: string; name: string; color: string } }[];
+          })
+        | undefined;
+      return {
+        ...m,
+        recipients: filterRecipientsForViewer(
+          m.recipients,
+          { id: session.id, internalEmail: session.internalEmail },
+          m.senderId === session.id,
+        ),
+        viewerReadAt: viewerIsSenderOnly
+          ? new Date().toISOString()
+          : (myRow?.readAt ?? null),
+        viewerLabels: (rowWithLabels?.mailLabels ?? []).map((ml) => ({
+          id: ml.label.id,
+          name: ml.label.name,
+          color: ml.label.color,
+        })),
+      };
+    });
 
   const inboxUnreadCount = includeInboxUnread
     ? await countInboxUnreadForUser(session)
@@ -404,6 +429,7 @@ export async function POST(request: Request) {
       ...(first.fieldErrors.attachments ?? []),
       ...(first.fieldErrors.id ?? []),
       ...(first.fieldErrors.send ?? []),
+      ...(first.fieldErrors.inReplyToMessageId ?? []),
       ...(first.formErrors),
     ][0];
     const issueMsg = parsed.error.issues[0]?.message;
@@ -415,8 +441,34 @@ export async function POST(request: Request) {
 
   const { subject, body, recipientEmails, ccEmails, bccEmails, send } = parsed.data;
   const attachments = parsed.data.attachments;
+  const inReplyToId = parsed.data.inReplyToMessageId;
 
   try {
+    let finalSubject = subject;
+    let threadMeta: { threadRootId: string; includeInSenderSent: boolean } | null = null;
+
+    if (send && inReplyToId && !parsed.data.id) {
+      const parent = await prisma.internalMessage.findFirst({
+        where: { id: inReplyToId, status: ST.SENT },
+        include: { recipients: true },
+      });
+      if (!parent) {
+        return NextResponse.json({ error: "Message to reply to not found" }, { status: 404 });
+      }
+      const my = session.internalEmail.toLowerCase();
+      const amRecipient = parent.recipients.some(
+        (r) => r.userId === session.id || r.email.toLowerCase() === my,
+      );
+      const amSenderInThread =
+        parent.senderId === session.id && parent.threadRootId != null;
+      if (!amRecipient && !amSenderInThread) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+      const rootId = parent.threadRootId ?? parent.id;
+      threadMeta = { threadRootId: rootId, includeInSenderSent: false };
+      finalSubject = normalizeReplySubject(parent.subject);
+    }
+
     const sender = await prisma.user.findUnique({
       where: { id: session.id },
       select: {
@@ -489,7 +541,7 @@ export async function POST(request: Request) {
     const tryOutboundCopy = async (): Promise<string | undefined> => {
       if (!send || merged.length === 0) return undefined;
       const outbound = await deliverInternalMessageCopy({
-        subject,
+        subject: finalSubject,
         html: bodyWithFooter,
         senderName: sender.name,
         senderInternalEmail: sender.internalEmail,
@@ -561,7 +613,7 @@ export async function POST(request: Request) {
               userId: u.id,
               type: "mail",
               title: `You've received an email from ${sender.name}`,
-              body: `${sender.internalEmail} · ${subject}`,
+              body: `${sender.internalEmail} · ${finalSubject}`,
               link: "/mail",
             })),
         });
@@ -576,7 +628,7 @@ export async function POST(request: Request) {
           );
           await prisma.internalMessage.create({
             data: {
-              subject: `Automatic reply: ${subject}`,
+              subject: `Automatic reply: ${finalSubject}`,
               body: autoReplyBody,
               senderId: away.id,
               status: ST.SENT,
@@ -614,11 +666,17 @@ export async function POST(request: Request) {
 
     const message = await prisma.internalMessage.create({
       data: {
-        subject,
+        subject: finalSubject,
         body: bodyWithFooter,
         senderId: session.id,
         status: send ? ST.SENT : ST.DRAFT,
         sentAt: send ? new Date() : null,
+        ...(threadMeta
+          ? {
+              threadRootId: threadMeta.threadRootId,
+              includeInSenderSent: threadMeta.includeInSenderSent,
+            }
+          : {}),
         ...(recipientCreates ? { recipients: { create: recipientCreates } } : {}),
         ...(attachmentCreates
           ? { attachments: { create: attachmentCreates } }
@@ -640,7 +698,7 @@ export async function POST(request: Request) {
             userId: u.id,
             type: "mail",
             title: `You've received an email from ${sender.name}`,
-            body: `${sender.internalEmail} · ${subject}`,
+            body: `${sender.internalEmail} · ${finalSubject}`,
             link: "/mail",
           })),
       });
@@ -655,7 +713,7 @@ export async function POST(request: Request) {
         );
         await prisma.internalMessage.create({
           data: {
-            subject: `Automatic reply: ${subject}`,
+            subject: `Automatic reply: ${finalSubject}`,
             body: autoReplyBody,
             senderId: away.id,
             status: ST.SENT,

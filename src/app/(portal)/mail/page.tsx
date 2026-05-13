@@ -48,6 +48,11 @@ import { RichEditor } from "@/components/portal/rich-editor";
 import { cn } from "@/lib/utils";
 import { hexForColorInput, MAIL_LABEL_MAX_PER_USER } from "@/lib/mail-labels";
 import { PORTAL_MAIL_UNREAD_COUNT_EVENT } from "@/lib/mail-inbox-unread";
+import {
+  normalizeForwardSubject,
+  normalizeReplySubject,
+  stripSubjectPrefixes,
+} from "@/lib/mail-subject";
 
 type MailLabelDto = { id: string; name: string; color: string };
 
@@ -57,6 +62,9 @@ type Msg = {
   body: string;
   sentAt: string | null;
   status?: "DRAFT" | "SENT";
+  /** Same as `id` for the first message in a thread; replies point at the root. */
+  threadRootId?: string | null;
+  includeInSenderSent?: boolean;
   sender?: { name: string; internalEmail: string };
   viewerReadAt?: string | null;
   /** Present for `folder=trash`: when this copy was moved to trash (30-day retention from this time). */
@@ -77,6 +85,10 @@ type Msg = {
     size: number | null;
   }[];
 };
+
+function threadKey(m: Pick<Msg, "id" | "threadRootId">): string {
+  return m.threadRootId ?? m.id;
+}
 
 function formatNames(
   recipients: Msg["recipients"],
@@ -384,6 +396,40 @@ export default function MailPage() {
     );
   }, [folder, messages, selectedFilterLabelIds]);
 
+  type InboxThreadGroup = {
+    threadRootId: string;
+    messages: Msg[];
+    latest: Msg;
+    anyUnread: boolean;
+  };
+
+  const inboxThreadGroups = useMemo((): InboxThreadGroup[] => {
+    if (folder !== "inbox") return [];
+    const roots = new Set<string>();
+    for (const m of listMessages) {
+      roots.add(threadKey(m));
+    }
+    const out: InboxThreadGroup[] = [];
+    for (const threadRootId of roots) {
+      const threadMsgs = messages
+        .filter((x) => threadKey(x) === threadRootId)
+        .sort(
+          (a, b) =>
+            new Date(a.sentAt || 0).getTime() - new Date(b.sentAt || 0).getTime(),
+        );
+      if (threadMsgs.length === 0) continue;
+      const latest = threadMsgs[threadMsgs.length - 1]!;
+      const anyUnread = threadMsgs.some((x) => !x.viewerReadAt);
+      out.push({ threadRootId, messages: threadMsgs, latest, anyUnread });
+    }
+    out.sort(
+      (a, b) =>
+        new Date(b.latest.sentAt || 0).getTime() -
+        new Date(a.latest.sentAt || 0).getTime(),
+    );
+    return out;
+  }, [folder, listMessages, messages]);
+
   const activeMailDragMessage = useMemo(
     () =>
       activeMailDragId
@@ -391,6 +437,32 @@ export default function MailPage() {
         : null,
     [activeMailDragId, messages],
   );
+
+  const { threadMessages, threadTitle } = useMemo(() => {
+    if (folder !== "inbox" || !selectedMessage) {
+      return {
+        threadMessages: [] as Msg[],
+        threadTitle: selectedMessage?.subject ?? "",
+      };
+    }
+    const root = threadKey(selectedMessage);
+    const tm = messages
+      .filter((x) => threadKey(x) === root)
+      .sort(
+        (a, b) =>
+          new Date(a.sentAt || 0).getTime() - new Date(b.sentAt || 0).getTime(),
+      );
+    return {
+      threadMessages: tm,
+      threadTitle: stripSubjectPrefixes(tm[0]?.subject ?? selectedMessage.subject),
+    };
+  }, [folder, selectedMessage, messages]);
+
+  const replyTarget = useMemo(() => {
+    if (folder !== "inbox" || !selectedMessage) return selectedMessage;
+    if (threadMessages.length === 0) return selectedMessage;
+    return threadMessages[threadMessages.length - 1]!;
+  }, [folder, selectedMessage, threadMessages]);
 
   const isReadingMessage = Boolean(selectedMessageId) && !composeOpen;
 
@@ -860,18 +932,36 @@ export default function MailPage() {
       return;
     }
     if (folder === "inbox") {
-      const wasUnread = m.viewerReadAt == null;
-      await fetch(`/api/mail/${m.id}/read`, { method: "POST", credentials: "include" });
+      const root = threadKey(m);
+      const thread = messages
+        .filter((x) => threadKey(x) === root)
+        .sort(
+          (a, b) =>
+            new Date(a.sentAt || 0).getTime() - new Date(b.sentAt || 0).getTime(),
+        );
+      const latest = thread[thread.length - 1] ?? m;
+      let unreadDelta = 0;
+      for (const t of thread) {
+        if (t.viewerReadAt == null) {
+          unreadDelta++;
+          await fetch(`/api/mail/${t.id}/read`, { method: "POST", credentials: "include" });
+        }
+      }
       setMessages((prev) =>
-        prev.map((msg) =>
-          msg.id === m.id
-            ? { ...msg, viewerReadAt: new Date().toISOString() }
-            : msg,
-        ),
+        prev.map((msg) => {
+          if (!thread.some((w) => w.id === msg.id) || msg.viewerReadAt != null) {
+            return msg;
+          }
+          return { ...msg, viewerReadAt: new Date().toISOString() };
+        }),
       );
-      if (wasUnread) setInboxUnreadCount((n) => Math.max(0, n - 1));
+      if (unreadDelta > 0) {
+        setInboxUnreadCount((n) => Math.max(0, n - unreadDelta));
+      }
+      setSelectedMessageId(latest.id);
+    } else {
+      setSelectedMessageId(m.id);
     }
-    setSelectedMessageId(m.id);
     if (me) {
       setReplyBodyHtml(`<p></p><hr /><p>${me.emailFooter.replace(/\n/g, "<br />")}</p>`);
       setReplyAttachments([]);
@@ -944,24 +1034,30 @@ export default function MailPage() {
   }
 
   async function sendReply() {
-    if (!selectedMessage || folder !== "inbox") return;
-    const recipient = selectedMessage.sender?.internalEmail;
+    if (!replyTarget || folder !== "inbox" || !me) return;
+    const myEmail = me.internalEmail.toLowerCase();
+    let recipient: string | null = null;
+    for (let i = threadMessages.length - 1; i >= 0; i--) {
+      const em = threadMessages[i].sender?.internalEmail?.toLowerCase();
+      if (em && em !== myEmail) {
+        recipient = threadMessages[i].sender!.internalEmail;
+        break;
+      }
+    }
     if (!recipient) {
-      toast.error("No sender to reply to");
+      toast.error("No one to reply to in this thread");
       return;
     }
-    const replySubject = selectedMessage.subject.toLowerCase().startsWith("re:")
-      ? selectedMessage.subject
-      : `Re: ${selectedMessage.subject}`;
     const res = await fetch("/api/mail", {
       method: "POST",
       credentials: "include",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        subject: replySubject,
+        subject: normalizeReplySubject(replyTarget.subject),
         body: replyBodyHtml ?? "",
         recipientEmails: [recipient],
         attachments: replyAttachments,
+        inReplyToMessageId: replyTarget.id,
         send: true,
       }),
     });
@@ -981,6 +1077,7 @@ export default function MailPage() {
     }
     setReplyAttachments([]);
     setReplyBodyHtml(`<p></p><hr /><p>${me?.emailFooter.replace(/\n/g, "<br />") ?? ""}</p>`);
+    await load();
   }
 
   /** Fills the portal main column below the top bar (h-14), accounting for layout padding (p-4 / md:p-8). */
@@ -1175,12 +1272,28 @@ export default function MailPage() {
           <div className="space-y-3">
               {folder === "inbox" && selectedFilterLabelIds.length > 0 && (
                 <p className="text-xs text-muted-foreground">
-                  Showing {listMessages.length} of {messages.length} — matching any selected label
+                  Showing {listMessages.length} messages in {inboxThreadGroups.length}{" "}
+                  {inboxThreadGroups.length === 1 ? "thread" : "threads"} — matching any selected
+                  label
                 </p>
               )}
-              {listMessages.map((m) => (
+              {(folder === "inbox" ? inboxThreadGroups : listMessages).map((item) => {
+                const row = folder === "inbox" ? (item as InboxThreadGroup) : null;
+                const m = row ? row.latest : (item as Msg);
+                const cardKey = row ? row.threadRootId : m.id;
+                const listTitle =
+                  row != null
+                    ? stripSubjectPrefixes(row.messages[0]?.subject ?? m.subject)
+                    : m.subject;
+                const inboxThreadSummary =
+                  row && row.messages.length > 1
+                    ? `${row.messages.length} messages · Latest from ${
+                        m.sender?.name ?? m.sender?.internalEmail ?? "Unknown"
+                      }`
+                    : null;
+                return (
                 <Card
-                  key={m.id}
+                  key={cardKey}
                   className={cn(
                     "cursor-pointer transition-[opacity,transform,background-color] duration-200 hover:bg-accent/30",
                     folder === "inbox" &&
@@ -1208,7 +1321,7 @@ export default function MailPage() {
                                     : "flex-1",
                                 )}
                               >
-                                {m.subject}
+                                {listTitle}
                               </CardTitle>
                               {(m.viewerLabels?.length ?? 0) > 0 && (
                                 <div
@@ -1244,7 +1357,7 @@ export default function MailPage() {
                               )}
                             </div>
                             <InboxReadStatus
-                              viewerReadAt={m.viewerReadAt}
+                              viewerReadAt={row?.anyUnread ? null : m.viewerReadAt}
                               messageId={m.id}
                               size="list"
                               onMarkUnread={(id) => void markMessageUnread(id)}
@@ -1260,8 +1373,9 @@ export default function MailPage() {
                         <p className="min-w-0 flex-1 text-xs text-muted-foreground">
                           {folder === "trash" && m.viewerTrashedAt
                             ? `In Trash · permanently removed after ${formatTrashPurgeDate(m.viewerTrashedAt)}`
-                            : folder === "inbox" && m.sender
-                              ? `From ${m.sender.name}`
+                            : folder === "inbox"
+                              ? inboxThreadSummary ??
+                                (m.sender ? `From ${m.sender.name}` : "Message")
                               : folder === "sent"
                                 ? [
                                     formatNames(m.recipients, ["TO"]) &&
@@ -1356,7 +1470,7 @@ export default function MailPage() {
                                 setEditingDraftId(null);
                                 resetComposeRecipients();
                                 setAttachments([]);
-                                setSubject(`Fwd: ${m.subject}`);
+                                setSubject(normalizeForwardSubject(m.subject));
                                 setBodyHtml(
                                   `<p></p><p>---------- Forwarded message ----------</p>${m.body}`,
                                 );
@@ -1376,8 +1490,8 @@ export default function MailPage() {
                     {stripHtml(m.body)}
                   </CardContent>
                 </Card>
-              ))}
-              {listMessages.length === 0 && (
+              );})}
+              {(folder === "inbox" ? inboxThreadGroups.length === 0 : listMessages.length === 0) && (
                 <p className="text-sm text-muted-foreground">
                   {folder === "trash"
                     ? "Trash is empty."
@@ -1517,11 +1631,18 @@ export default function MailPage() {
           <div className="flex min-w-0 flex-1 flex-col gap-1">
             <div className="flex min-w-0 items-center gap-2">
               <h2 className="min-w-0 flex-1 truncate text-lg font-semibold tracking-tight">
-                {selectedMessage.subject}
+                {folder === "inbox" ? threadTitle : selectedMessage.subject}
               </h2>
               {folder === "inbox" && (
                 <InboxReadStatus
-                  viewerReadAt={selectedMessage.viewerReadAt}
+                  viewerReadAt={
+                    threadMessages.length > 0
+                      ? threadMessages.some((x) => !x.viewerReadAt)
+                        ? null
+                        : (threadMessages[threadMessages.length - 1]?.viewerReadAt ??
+                          new Date().toISOString())
+                      : selectedMessage.viewerReadAt
+                  }
                   messageId={selectedMessage.id}
                   size="header"
                   onMarkUnread={(id) => void markMessageUnread(id)}
@@ -1617,9 +1738,13 @@ export default function MailPage() {
                     setEditingDraftId(null);
                     resetComposeRecipients();
                     setAttachments([]);
-                    setSubject(`Fwd: ${selectedMessage.subject}`);
+                    setSubject(normalizeForwardSubject(selectedMessage.subject));
                     setBodyHtml(
-                      `<p></p><p>---------- Forwarded message ----------</p>${selectedMessage.body}`,
+                      `<p></p><p>---------- Forwarded message ----------</p>${
+                        folder === "inbox" && threadMessages.length > 1
+                          ? threadMessages.map((tm) => tm.body).join("<hr />")
+                          : selectedMessage.body
+                      }`,
                     );
                     setComposeSession((s) => s + 1);
                     setSelectedMessageId(null);
@@ -1634,6 +1759,56 @@ export default function MailPage() {
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="w-full space-y-4 pt-4 pb-16 md:space-y-6 md:pt-5 md:pb-24">
+            {folder === "inbox" && threadMessages.length > 0 ? (
+              <div className="space-y-8">
+                {threadMessages.map((tm) => (
+                  <article key={tm.id} className="space-y-3">
+                    <div className="space-y-1 text-xs text-muted-foreground md:text-sm">
+                      {tm.sender && (
+                        <p>
+                          From {tm.sender.name} &lt;{tm.sender.internalEmail}&gt;
+                        </p>
+                      )}
+                      {formatNames(tm.recipients, ["TO"]) && (
+                        <p>To: {formatNames(tm.recipients, ["TO"])}</p>
+                      )}
+                      {formatNames(tm.recipients, ["CC"]) && (
+                        <p>Cc: {formatNames(tm.recipients, ["CC"])}</p>
+                      )}
+                      {formatNames(tm.recipients, ["BCC"]) && (
+                        <p className="text-amber-800 dark:text-amber-300">
+                          Bcc (visible to you): {formatNames(tm.recipients, ["BCC"])}
+                        </p>
+                      )}
+                      {tm.sentAt && (
+                        <p>{new Date(tm.sentAt).toLocaleString()}</p>
+                      )}
+                    </div>
+                    <div
+                      className="prose prose-sm max-w-none rounded-md border p-3 dark:prose-invert md:prose-base md:p-4"
+                      dangerouslySetInnerHTML={{ __html: tm.body }}
+                    />
+                    {(tm.attachments?.length ?? 0) > 0 && (
+                      <div className="space-y-1">
+                        <p className="text-xs font-medium text-muted-foreground">Attachments</p>
+                        {tm.attachments?.map((a) => (
+                          <a
+                            key={a.id}
+                            href={a.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="block text-sm underline"
+                          >
+                            {a.filename}
+                          </a>
+                        ))}
+                      </div>
+                    )}
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <>
             <div className="space-y-1 text-xs text-muted-foreground md:text-sm">
               {folder === "inbox" && selectedMessage.sender && (
                 <p>
@@ -1689,8 +1864,10 @@ export default function MailPage() {
                 ))}
               </div>
             )}
+              </>
+            )}
 
-            {folder === "inbox" && selectedMessage.sender && (
+            {folder === "inbox" && (
               <div className="space-y-3 border-t pt-4">
                 <p className="text-sm font-medium">Reply</p>
                 <RichEditor

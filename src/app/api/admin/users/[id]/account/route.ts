@@ -6,7 +6,7 @@ import { getSession } from "@/lib/session";
 import { writeAuditLog } from "@/lib/audit";
 
 const bodySchema = z.object({
-  action: z.enum(["pause", "unpause", "delete", "restore"]),
+  action: z.enum(["pause", "unpause", "delete"]),
 });
 
 export async function POST(
@@ -94,9 +94,9 @@ export async function POST(
       entityId: id,
       metadata: { internalEmail: target.internalEmail },
     });
-  } else if (action === "delete") {
+  } else {
     if (target.accountStatus === "DELETED") {
-      return NextResponse.json({ error: "Account is already removed" }, { status: 400 });
+      return NextResponse.json({ error: "Account is not available" }, { status: 400 });
     }
     if (target.role === Role.ADMIN) {
       const otherActiveAdmins = await prisma.user.count({
@@ -108,37 +108,28 @@ export async function POST(
       });
       if (otherActiveAdmins === 0) {
         return NextResponse.json(
-          { error: "Cannot remove the last active administrator." },
+          { error: "Cannot delete the last active administrator." },
           { status: 400 },
         );
       }
     }
-    await prisma.user.update({
-      where: { id },
-      data: { accountStatus: AccountStatus.DELETED },
-    });
-    await writeAuditLog({
-      actorId: session.id,
-      action: "user.delete_soft",
-      entityType: "User",
-      entityId: id,
-      metadata: { internalEmail: target.internalEmail },
-    });
-  } else {
-    if (target.accountStatus !== "DELETED") {
-      return NextResponse.json({ error: "Account is not removed" }, { status: 400 });
+    try {
+      await prisma.user.delete({ where: { id } });
+    } catch (e) {
+      console.error("[POST /api/admin/users/:id/account] delete failed:", e);
+      return NextResponse.json(
+        { error: "Could not delete account (it may still be referenced). Check server logs." },
+        { status: 500 },
+      );
     }
-    await prisma.user.update({
-      where: { id },
-      data: { accountStatus: AccountStatus.ACTIVE },
-    });
     await writeAuditLog({
       actorId: session.id,
-      action: "user.restore",
+      action: "user.delete",
       entityType: "User",
       entityId: id,
       metadata: { internalEmail: target.internalEmail },
     });
+    return NextResponse.json({ deleted: true });
   }
 
   const user = await prisma.user.findUniqueOrThrow({
@@ -154,6 +145,7 @@ export async function POST(
       imageUrl: true,
       createdAt: true,
       accountStatus: true,
+      canViewTeamStaffContacts: true,
     },
   });
 

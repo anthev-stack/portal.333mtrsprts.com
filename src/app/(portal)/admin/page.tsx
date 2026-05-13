@@ -44,7 +44,7 @@ type UserRow = {
   position: string | null;
   imageUrl: string | null;
   accountStatus: AccountStatus;
-  teamStaffContactVisible: boolean;
+  canViewTeamStaffContacts: boolean;
 };
 
 type AuditRow = {
@@ -170,21 +170,21 @@ export default function AdminPage() {
     }
   }
 
-  async function setTeamContactVisible(id: string, value: boolean) {
+  async function setCanViewTeamStaffContacts(id: string, value: boolean) {
     const res = await fetch(`/api/admin/users/${id}`, {
       method: "PATCH",
       credentials: "include",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ teamStaffContactVisible: value }),
+      body: JSON.stringify({ canViewTeamStaffContacts: value }),
     });
     if (!res.ok) {
-      toast.error("Could not update Team contact visibility");
+      toast.error("Could not update staff contact access");
       return;
     }
     toast.success(
       value
-        ? "Colleagues can see this user’s contact details on the Team tab."
-        : "Contact details hidden on the Team tab.",
+        ? "This user can view phone, address, and emergency details for everyone on Team."
+        : "Team contact details hidden for this user.",
     );
     await load();
   }
@@ -202,9 +202,14 @@ export default function AdminPage() {
 
   async function accountAction(
     id: string,
-    action: "pause" | "unpause" | "delete" | "restore",
+    action: "pause" | "unpause" | "delete",
   ) {
-    if (action === "delete" && !window.confirm("Remove this account? They will not be able to sign in.")) {
+    if (
+      action === "delete" &&
+      !window.confirm(
+        "Permanently delete this account? This cannot be undone. The user, their profile, and related portal data will be removed.\n\nUse Pause if you only need to block sign-in temporarily.",
+      )
+    ) {
       return;
     }
     const res = await fetch(`/api/admin/users/${id}/account`, {
@@ -218,7 +223,12 @@ export default function AdminPage() {
       toast.error(body?.error ?? "Could not update account");
       return;
     }
-    toast.success("Account updated");
+    const data = (await res.json().catch(() => ({}))) as { deleted?: boolean };
+    if (data.deleted) {
+      toast.success("Account permanently deleted");
+    } else {
+      toast.success("Account updated");
+    }
     await load();
   }
 
@@ -229,7 +239,8 @@ export default function AdminPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Administration</h1>
           <p className="text-sm text-muted-foreground">
-            Manage people, permissions, and security events.
+            Manage people, permissions, and security events. Pause blocks sign-in without removing data;
+            delete permanently removes an account (no restore).
           </p>
         </div>
         <Button onClick={() => setOpen(true)}>Add user</Button>
@@ -237,6 +248,11 @@ export default function AdminPage() {
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Team directory</CardTitle>
+          <p className="text-xs text-muted-foreground">
+            Use <span className="font-medium text-foreground">View all staff contacts on Team</span>{" "}
+            to let a specific user see everyone&apos;s phone, address, and emergency details on the Team
+            page — not to publish one person&apos;s details to the whole company.
+          </p>
         </CardHeader>
         <CardContent className="overflow-x-auto">
           <Table>
@@ -247,8 +263,10 @@ export default function AdminPage() {
                 <TableHead>Internal</TableHead>
                 <TableHead>Role</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead className="w-[7.5rem] text-center">
-                  <span className="text-xs font-medium leading-tight">Staff contact on Team</span>
+                <TableHead className="max-w-[9rem] text-center">
+                  <span className="text-xs font-medium leading-tight">
+                    View all staff contacts on Team
+                  </span>
                 </TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
@@ -282,18 +300,19 @@ export default function AdminPage() {
                     {u.accountStatus === AccountStatus.PAUSED && (
                       <Badge variant="secondary">Paused</Badge>
                     )}
-                    {u.accountStatus === AccountStatus.DELETED && (
-                      <Badge variant="destructive">Removed</Badge>
-                    )}
                   </TableCell>
                   <TableCell className="text-center">
                     <div className="flex flex-col items-center gap-1">
                       <Switch
-                        checked={u.teamStaffContactVisible}
+                        checked={u.canViewTeamStaffContacts}
                         disabled={u.accountStatus !== AccountStatus.ACTIVE}
-                        onCheckedChange={(v) => void setTeamContactVisible(u.id, v === true)}
+                        onCheckedChange={(v) =>
+                          void setCanViewTeamStaffContacts(u.id, v === true)
+                        }
                       />
-                      <span className="text-[10px] text-muted-foreground">Phone & address</span>
+                      <span className="text-[10px] text-muted-foreground">
+                        User sees everyone’s details
+                      </span>
                     </div>
                   </TableCell>
                   <TableCell className="text-right space-x-2">
@@ -315,22 +334,13 @@ export default function AdminPage() {
                         Unpause
                       </Button>
                     )}
-                    {u.id !== meId && u.accountStatus !== AccountStatus.DELETED && (
+                    {u.id !== meId && (
                       <Button
                         size="sm"
                         variant="destructive"
                         onClick={() => void accountAction(u.id, "delete")}
                       >
-                        Remove
-                      </Button>
-                    )}
-                    {u.id !== meId && u.accountStatus === AccountStatus.DELETED && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => void accountAction(u.id, "restore")}
-                      >
-                        Restore
+                        Delete
                       </Button>
                     )}
                     <Button

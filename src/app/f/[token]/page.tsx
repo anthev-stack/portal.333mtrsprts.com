@@ -14,7 +14,6 @@ import {
   Card,
   CardContent,
   CardDescription,
-  CardHeader,
   CardTitle,
 } from "@/components/ui/card";
 
@@ -74,12 +73,18 @@ export default function PublicFormPage() {
   if (done) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-muted/40 p-6">
-        <Card className="max-w-md text-center shadow-md">
-          <CardHeader>
-            <PortalLogo className="mx-auto" />
-            <CardTitle>Thank you</CardTitle>
-            <CardDescription>Your response has been saved.</CardDescription>
-          </CardHeader>
+        <Card className="w-full max-w-lg overflow-visible shadow-md">
+          <CardContent className="flex flex-col items-center gap-5 px-6 py-10 text-center sm:px-8">
+            <PortalLogo className="mx-auto shrink-0" />
+            <div className="w-full min-w-0 space-y-3">
+              <CardTitle className="text-balance text-xl font-semibold leading-snug">
+                Thank you
+              </CardTitle>
+              <CardDescription className="text-balance text-base leading-relaxed text-muted-foreground">
+                Your response has been saved.
+              </CardDescription>
+            </div>
+          </CardContent>
         </Card>
       </div>
     );
