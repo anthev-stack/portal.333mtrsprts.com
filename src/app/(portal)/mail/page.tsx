@@ -1633,7 +1633,7 @@ export default function MailPage() {
           </div>
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="w-full space-y-4 pb-16 md:space-y-6 md:pb-24">
+          <div className="w-full space-y-4 pt-4 pb-16 md:space-y-6 md:pt-5 md:pb-24">
             <div className="space-y-1 text-xs text-muted-foreground md:text-sm">
               {folder === "inbox" && selectedMessage.sender && (
                 <p>

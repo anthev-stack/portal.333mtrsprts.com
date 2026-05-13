@@ -47,6 +47,8 @@ type CareRequest = {
   customerName: string;
   customerEmail: string | null;
   customerPhone: string | null;
+  orderNumber: string | null;
+  trackingNumber: string | null;
   query: string;
   resolvedAt: string | null;
   createdAt: string;
@@ -106,6 +108,8 @@ export default function CustomerCarePage() {
   const [customerName, setCustomerName] = useState("");
   const [customerEmail, setCustomerEmail] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
+  const [orderNumber, setOrderNumber] = useState("");
+  const [trackingNumber, setTrackingNumber] = useState("");
   const [query, setQuery] = useState("");
   const [extraAssignees, setExtraAssignees] = useState<Record<string, boolean>>({});
 
@@ -152,6 +156,8 @@ export default function CustomerCarePage() {
     setCustomerName("");
     setCustomerEmail("");
     setCustomerPhone("");
+    setOrderNumber("");
+    setTrackingNumber("");
     setQuery("");
     setExtraAssignees({});
   }
@@ -176,6 +182,10 @@ export default function CustomerCarePage() {
       };
       if (emailT) payload.customerEmail = emailT;
       if (phoneT) payload.customerPhone = phoneT;
+      const orderT = orderNumber.trim();
+      const trackingT = trackingNumber.trim();
+      if (orderT) payload.orderNumber = orderT;
+      if (trackingT) payload.trackingNumber = trackingT;
 
       const res = await fetch("/api/customer-care", {
         method: "POST",
@@ -279,6 +289,16 @@ export default function CustomerCarePage() {
                   {r.customerEmail && <span className="truncate">Email: {r.customerEmail}</span>}
                   {r.customerPhone && <span>Mobile: {r.customerPhone}</span>}
                 </div>
+                {(r.orderNumber || r.trackingNumber) && (
+                  <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
+                    {r.orderNumber && (
+                      <span className="truncate font-medium text-foreground/80">Order: {r.orderNumber}</span>
+                    )}
+                    {r.trackingNumber && (
+                      <span className="truncate font-medium text-foreground/80">Tracking: {r.trackingNumber}</span>
+                    )}
+                  </div>
+                )}
                 <p className="line-clamp-2 whitespace-pre-wrap text-xs leading-snug text-foreground">
                   {r.query}
                 </p>
@@ -301,7 +321,7 @@ export default function CustomerCarePage() {
                   )}
                   {r.resolvedAt && (
                     <Button size="sm" className="h-7 text-xs" variant="secondary" onClick={() => void reopen(r.id)}>
-                      Undo resolve
+                      Reactivate
                     </Button>
                   )}
                 </div>
@@ -389,6 +409,35 @@ export default function CustomerCarePage() {
               />
             </div>
             <p className="text-xs text-muted-foreground">At least one of email or mobile is required.</p>
+            <div className="space-y-2 rounded-md border border-dashed p-3">
+              <p className="text-xs font-medium text-muted-foreground">Order details (optional)</p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="cc-order">Order number</Label>
+                  <Input
+                    id="cc-order"
+                    value={orderNumber}
+                    onChange={(e) => setOrderNumber(e.target.value)}
+                    placeholder="e.g. web order ID"
+                    autoComplete="off"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="cc-tracking">Tracking number</Label>
+                  <Input
+                    id="cc-tracking"
+                    value={trackingNumber}
+                    onChange={(e) => setTrackingNumber(e.target.value)}
+                    placeholder="Carrier tracking ref"
+                    autoComplete="off"
+                  />
+                </div>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Use when the customer is following up on an order or shipment so the team can look it up
+                quickly.
+              </p>
+            </div>
             <div className="space-y-2">
               <Label htmlFor="cc-q">Question / notes</Label>
               <Textarea

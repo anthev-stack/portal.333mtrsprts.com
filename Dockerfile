@@ -34,6 +34,8 @@ COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
+# App runs as `nextjs`; root-owned `public` prevents mkdir/write under public/uploads → 500 on POST /api/upload.
+RUN mkdir -p public/uploads && chown -R nextjs:nodejs public
 
 USER nextjs
 EXPOSE 3000

@@ -10,6 +10,8 @@ const createSchema = z.object({
   /** Accept string, null, or missing (JSON null from clients must not break email-only submits). */
   customerEmail: z.unknown().optional(),
   customerPhone: z.unknown().optional(),
+  orderNumber: z.unknown().optional(),
+  trackingNumber: z.unknown().optional(),
   query: z.string().trim().min(1, "Question or notes are required"),
   assigneeUserIds: z.array(z.string().min(1)).optional().default([]),
 });
@@ -80,6 +82,10 @@ export async function POST(request: Request) {
     customerEmail = em.data;
   }
   const customerPhone = phoneRaw || null;
+  const orderRaw = strFromUnknown(parsed.data.orderNumber);
+  const trackingRaw = strFromUnknown(parsed.data.trackingNumber);
+  const orderNumber = orderRaw || null;
+  const trackingNumber = trackingRaw || null;
   if (!customerEmail && !customerPhone) {
     return NextResponse.json(
       { error: "Provide at least an email or a mobile number for the customer" },
@@ -99,7 +105,15 @@ export async function POST(request: Request) {
     );
   }
 
-  const preview = stripHtml(parsed.data.query).slice(0, 200);
+  const previewBase = stripHtml(parsed.data.query).slice(0, 200);
+  const refBits = [
+    orderNumber && `Order ${orderNumber}`,
+    trackingNumber && `Tracking ${trackingNumber}`,
+  ].filter(Boolean);
+  const preview =
+    refBits.length > 0
+      ? `${refBits.join(" · ")}${previewBase ? ` — ${previewBase}` : ""}`.slice(0, 280)
+      : previewBase || "New customer care request";
 
   const created = await prisma.$transaction(async (tx) => {
     const req = await tx.customerCareRequest.create({
@@ -108,6 +122,8 @@ export async function POST(request: Request) {
         customerName: parsed.data.customerName.trim(),
         customerEmail,
         customerPhone,
+        orderNumber,
+        trackingNumber,
         query: parsed.data.query.trim(),
         assignments: {
           create: assigneeIds.map((userId) => ({ userId })),
@@ -123,7 +139,7 @@ export async function POST(request: Request) {
           userId,
           type: "customer_care_assigned",
           title: `Customer care: ${parsed.data.customerName.trim()}`,
-          body: preview || "New customer care request",
+          body: preview,
           link: "/customer-care",
         })),
       });

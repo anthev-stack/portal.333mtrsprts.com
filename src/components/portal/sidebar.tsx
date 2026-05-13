@@ -30,27 +30,25 @@ async function fetchSidebarCounts(): Promise<PortalSidebarCountsPayload | null> 
   return (await res.json()) as PortalSidebarCountsPayload;
 }
 
-const links = (
-  role: "STAFF" | "ADMIN",
-): { href: string; label: string; icon: typeof Home }[] => {
-  const base = [
+type NavItem = { href: string; label: string; icon: typeof Home };
+
+function navSections(role: "STAFF" | "ADMIN"): { primary: NavItem[]; footer: NavItem[] } {
+  const primary: NavItem[] = [
     { href: "/home", label: "Home", icon: Home },
     { href: "/knowledgebase", label: "Knowledgebase", icon: BookOpen },
     { href: "/customer-care", label: "Customer care", icon: Headphones },
     { href: "/mail", label: "Mail", icon: Inbox },
     { href: "/jobs", label: "Jobs", icon: Briefcase },
-    { href: "/settings", label: "Settings", icon: Settings },
   ];
   if (role === "ADMIN") {
-    return [
-      ...base.slice(0, 5),
-      { href: "/forms", label: "Forms", icon: ClipboardList },
-      base[5],
-      { href: "/admin", label: "Admin", icon: Shield },
-    ];
+    primary.push({ href: "/forms", label: "Forms", icon: ClipboardList });
   }
-  return base;
-};
+  const footer: NavItem[] = [{ href: "/settings", label: "Settings", icon: Settings }];
+  if (role === "ADMIN") {
+    footer.push({ href: "/admin", label: "Admin", icon: Shield });
+  }
+  return { primary, footer };
+}
 
 function CountChip({ n }: { n: number }) {
   if (n <= 0) return null;
@@ -58,6 +56,58 @@ function CountChip({ n }: { n: number }) {
     <span className="shrink-0 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums leading-none text-primary">
       {n > 99 ? "99+" : n}
     </span>
+  );
+}
+
+function SidebarNavLink({
+  item,
+  pathname,
+  counts,
+  onNavigate,
+}: {
+  item: NavItem;
+  pathname: string;
+  counts: PortalSidebarCountsPayload | null;
+  onNavigate?: () => void;
+}) {
+  const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+  const mailN = item.href === "/mail" ? (counts?.mail ?? 0) : 0;
+  const jobsN = item.href === "/jobs" ? (counts?.jobs ?? 0) : 0;
+  const homeN = item.href === "/home" ? (counts?.home ?? 0) : 0;
+  const kbN =
+    item.href === "/knowledgebase" ? (counts?.knowledgebase ?? 0) : 0;
+  const careN =
+    item.href === "/customer-care" ? (counts?.customerCare ?? 0) : 0;
+  return (
+    <Link
+      href={item.href}
+      onClick={onNavigate}
+      className={cn(
+        "relative flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+        active
+          ? "bg-sidebar-accent text-sidebar-accent-foreground"
+          : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
+      )}
+    >
+      {active && (
+        <motion.span
+          layoutId="nav-pill"
+          className="absolute inset-0 rounded-lg bg-sidebar-accent"
+          transition={{ type: "spring", stiffness: 380, damping: 30 }}
+        />
+      )}
+      <span className="relative z-10 flex min-w-0 flex-1 items-center justify-between gap-2">
+        <span className="flex min-w-0 items-center gap-2">
+          <item.icon className="size-4 shrink-0" />
+          <span className="truncate">{item.label}</span>
+        </span>
+        {item.href === "/home" && <CountChip n={homeN} />}
+        {item.href === "/knowledgebase" && <CountChip n={kbN} />}
+        {item.href === "/customer-care" && <CountChip n={careN} />}
+        {item.href === "/mail" && <CountChip n={mailN} />}
+        {item.href === "/jobs" && <CountChip n={jobsN} />}
+      </span>
+    </Link>
   );
 }
 
@@ -69,7 +119,7 @@ export function PortalSidebar({
   onNavigate?: () => void;
 }) {
   const pathname = usePathname();
-  const items = links(role);
+  const { primary, footer } = navSections(role);
   const [counts, setCounts] = useState<PortalSidebarCountsPayload | null>(null);
 
   const applyCounts = useCallback((c: PortalSidebarCountsPayload) => {
@@ -171,53 +221,33 @@ export function PortalSidebar({
         </div>
       </div>
       <Separator />
-      <ScrollArea className="flex-1 px-2 py-3">
+      <ScrollArea className="min-h-0 flex-1 px-2 py-3">
         <nav className="flex flex-col gap-1">
-          {items.map((item) => {
-            const active =
-              pathname === item.href || pathname.startsWith(`${item.href}/`);
-            const mailN = item.href === "/mail" ? (counts?.mail ?? 0) : 0;
-            const jobsN = item.href === "/jobs" ? (counts?.jobs ?? 0) : 0;
-            const homeN = item.href === "/home" ? (counts?.home ?? 0) : 0;
-            const kbN =
-              item.href === "/knowledgebase" ? (counts?.knowledgebase ?? 0) : 0;
-            const careN =
-              item.href === "/customer-care" ? (counts?.customerCare ?? 0) : 0;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={onNavigate}
-                className={cn(
-                  "relative flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                  active
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
-                )}
-              >
-                {active && (
-                  <motion.span
-                    layoutId="nav-pill"
-                    className="absolute inset-0 rounded-lg bg-sidebar-accent"
-                    transition={{ type: "spring", stiffness: 380, damping: 30 }}
-                  />
-                )}
-                <span className="relative z-10 flex min-w-0 flex-1 items-center justify-between gap-2">
-                  <span className="flex min-w-0 items-center gap-2">
-                    <item.icon className="size-4 shrink-0" />
-                    <span className="truncate">{item.label}</span>
-                  </span>
-                  {item.href === "/home" && <CountChip n={homeN} />}
-                  {item.href === "/knowledgebase" && <CountChip n={kbN} />}
-                  {item.href === "/customer-care" && <CountChip n={careN} />}
-                  {item.href === "/mail" && <CountChip n={mailN} />}
-                  {item.href === "/jobs" && <CountChip n={jobsN} />}
-                </span>
-              </Link>
-            );
-          })}
+          {primary.map((item) => (
+            <SidebarNavLink
+              key={item.href}
+              item={item}
+              pathname={pathname}
+              counts={counts}
+              onNavigate={onNavigate}
+            />
+          ))}
         </nav>
       </ScrollArea>
+      <Separator className="shrink-0" />
+      <div className="shrink-0 px-2 py-3">
+        <nav className="flex flex-col gap-1" aria-label="Account and administration">
+          {footer.map((item) => (
+            <SidebarNavLink
+              key={item.href}
+              item={item}
+              pathname={pathname}
+              counts={counts}
+              onNavigate={onNavigate}
+            />
+          ))}
+        </nav>
+      </div>
     </div>
   );
 }

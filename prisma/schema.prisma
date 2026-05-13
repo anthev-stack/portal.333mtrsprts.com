@@ -391,6 +391,8 @@ model CustomerCareRequest {
   customerName   String
   customerEmail  String?
   customerPhone  String?
+  orderNumber    String?
+  trackingNumber String?
   query          String    @db.Text
   resolvedAt     DateTime?
   createdAt      DateTime  @default(now())

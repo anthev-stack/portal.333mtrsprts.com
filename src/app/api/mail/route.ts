@@ -57,9 +57,9 @@ const postSchema = z
       (v) => (typeof v === "string" ? v : ""),
       z.string(),
     ),
-    recipientEmails: emailArray,
-    ccEmails: emailArray,
-    bccEmails: emailArray,
+    recipientEmails: emailArray.default([]),
+    ccEmails: emailArray.default([]),
+    bccEmails: emailArray.default([]),
     attachments: z
       .array(
         z.object({
