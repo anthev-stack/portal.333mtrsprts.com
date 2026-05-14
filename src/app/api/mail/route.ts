@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { countInboxUnreadForUser } from "@/lib/mail-inbox-unread";
 import { normalizeReplySubject } from "@/lib/mail-subject";
+import { normalizeMessageId } from "@/lib/resend-inbound";
 import { deliverInternalMessageCopy } from "@/lib/transactional-mail";
 
 /** Prisma enum values as literals — avoids runtime `undefined` from `RecipientKind` / `MessageStatus` imports under Turbopack. */
@@ -17,6 +18,43 @@ const RK: { TO: RecipientKind; CC: RecipientKind; BCC: RecipientKind } = {
   CC: "CC",
   BCC: "BCC",
 };
+
+/** True when this portal user composed the message (not inbound external mail). */
+function sessionIsSender(senderId: string | null | undefined, sessionId: string): boolean {
+  return Boolean(senderId && senderId === sessionId);
+}
+
+type SenderRow = {
+  id: string;
+  name: string;
+  internalEmail: string;
+  imageUrl: string | null;
+} | null;
+
+function serializeMailSender(m: {
+  sender: SenderRow;
+  externalFromName: string | null;
+  externalFromEmail: string | null;
+}): { id: string | null; name: string; internalEmail: string; imageUrl: string | null } {
+  if (m.sender) {
+    return {
+      id: m.sender.id,
+      name: m.sender.name,
+      internalEmail: m.sender.internalEmail,
+      imageUrl: m.sender.imageUrl,
+    };
+  }
+  const email = (m.externalFromEmail ?? "").trim();
+  const name =
+    m.externalFromName?.trim() ||
+    (email ? (email.split("@")[0] ?? "External") : "External sender");
+  return {
+    id: null,
+    name,
+    internalEmail: email,
+    imageUrl: null,
+  };
+}
 
 const folderSchema = z.enum(["inbox", "sent", "drafts", "trash"]);
 
@@ -193,17 +231,22 @@ export async function GET(request: Request) {
       where: { senderId: session.id, status: ST.DRAFT },
       orderBy: { updatedAt: "desc" },
       include: {
+        sender: { select: { id: true, name: true, internalEmail: true, imageUrl: true } },
         recipients: recipientInclude,
         attachments: true,
       },
     });
+    const mapped = drafts.map((m) => ({
+      ...m,
+      sender: serializeMailSender(m),
+    }));
     const inboxUnreadCount = includeInboxUnread
       ? await countInboxUnreadForUser(session)
       : undefined;
     return NextResponse.json(
       inboxUnreadCount !== undefined
-        ? { messages: drafts, inboxUnreadCount }
-        : { messages: drafts },
+        ? { messages: mapped, inboxUnreadCount }
+        : { messages: mapped },
     );
   }
 
@@ -217,17 +260,22 @@ export async function GET(request: Request) {
       },
       orderBy: { sentAt: "desc" },
       include: {
+        sender: { select: { id: true, name: true, internalEmail: true, imageUrl: true } },
         recipients: recipientInclude,
         attachments: true,
       },
     });
+    const mappedSent = sent.map((m) => ({
+      ...m,
+      sender: serializeMailSender(m),
+    }));
     const inboxUnreadCount = includeInboxUnread
       ? await countInboxUnreadForUser(session)
       : undefined;
     return NextResponse.json(
       inboxUnreadCount !== undefined
-        ? { messages: sent, inboxUnreadCount }
-        : { messages: sent },
+        ? { messages: mappedSent, inboxUnreadCount }
+        : { messages: mappedSent },
     );
   }
 
@@ -304,10 +352,11 @@ export async function GET(request: Request) {
         );
         return {
           ...m,
+          sender: serializeMailSender(m),
           recipients: filterRecipientsForViewer(
             m.recipients,
             { id: session.id, internalEmail: session.internalEmail },
-            m.senderId === session.id,
+            sessionIsSender(m.senderId, session.id),
           ),
           viewerReadAt: myRow?.readAt ?? null,
           viewerTrashedAt: earliestTrash.toISOString(),
@@ -383,7 +432,9 @@ export async function GET(request: Request) {
           r.email.toLowerCase() === session.internalEmail.toLowerCase(),
       );
       const viewerIsSenderOnly =
-        m.senderId === session.id && !myRow && m.includeInSenderSent === false;
+        sessionIsSender(m.senderId, session.id) &&
+        !myRow &&
+        m.includeInSenderSent === false;
       const rowWithLabels = myRow as
         | (typeof myRow & {
             mailLabels?: { label: { id: string; name: string; color: string } }[];
@@ -391,10 +442,11 @@ export async function GET(request: Request) {
         | undefined;
       return {
         ...m,
+        sender: serializeMailSender(m),
         recipients: filterRecipientsForViewer(
           m.recipients,
           { id: session.id, internalEmail: session.internalEmail },
-          m.senderId === session.id,
+          sessionIsSender(m.senderId, session.id),
         ),
         viewerReadAt: viewerIsSenderOnly
           ? new Date().toISOString()
@@ -473,7 +525,7 @@ export async function POST(request: Request) {
         (r) => r.userId === session.id || r.email.toLowerCase() === my,
       );
       const amSenderInThread =
-        parent.senderId === session.id && parent.threadRootId != null;
+        sessionIsSender(parent.senderId, session.id) && parent.threadRootId != null;
       if (!amRecipient && !amSenderInThread) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
@@ -551,8 +603,11 @@ export async function POST(request: Request) {
       ).values(),
     ];
 
-    const tryOutboundCopy = async (): Promise<string | undefined> => {
-      if (!send || merged.length === 0) return undefined;
+    const tryOutboundCopy = async (): Promise<{
+      mailDeliveryWarning?: string;
+      smtpMessageId?: string;
+    }> => {
+      if (!send || merged.length === 0) return {};
       const outbound = await deliverInternalMessageCopy({
         subject: finalSubject,
         html: bodyWithFooter,
@@ -573,8 +628,12 @@ export async function POST(request: Request) {
         })),
         attachments,
       });
-      if (outbound && !outbound.ok) return outbound.error;
-      return undefined;
+      if (!outbound) return {};
+      if (!outbound.ok) return { mailDeliveryWarning: outbound.error };
+      const smtpMessageId = outbound.messageId
+        ? normalizeMessageId(outbound.messageId)
+        : undefined;
+      return { smtpMessageId };
     };
 
     if (parsed.data.id) {
@@ -669,11 +728,19 @@ export async function POST(request: Request) {
         }
       }
 
-      const mailDeliveryWarning = send ? await tryOutboundCopy() : undefined;
+      const { mailDeliveryWarning, smtpMessageId } = await tryOutboundCopy();
+      let responseMessage = updated;
+      if (smtpMessageId) {
+        await prisma.internalMessage.update({
+          where: { id: updated.id },
+          data: { rfcMessageId: smtpMessageId },
+        });
+        responseMessage = { ...updated, rfcMessageId: smtpMessageId };
+      }
       return NextResponse.json(
         mailDeliveryWarning
-          ? { message: updated, mailDeliveryWarning }
-          : { message: updated },
+          ? { message: responseMessage, mailDeliveryWarning }
+          : { message: responseMessage },
       );
     }
 
@@ -754,9 +821,19 @@ export async function POST(request: Request) {
       }
     }
 
-    const mailDeliveryWarning = send ? await tryOutboundCopy() : undefined;
+    const { mailDeliveryWarning, smtpMessageId } = await tryOutboundCopy();
+    let responseMessage = message;
+    if (smtpMessageId) {
+      await prisma.internalMessage.update({
+        where: { id: message.id },
+        data: { rfcMessageId: smtpMessageId },
+      });
+      responseMessage = { ...message, rfcMessageId: smtpMessageId };
+    }
     return NextResponse.json(
-      mailDeliveryWarning ? { message, mailDeliveryWarning } : { message },
+      mailDeliveryWarning
+        ? { message: responseMessage, mailDeliveryWarning }
+        : { message: responseMessage },
     );
   } catch (e) {
     console.error("mail POST", e);

@@ -225,8 +225,9 @@ model InternalMessage {
   subject          String
   body             String        @db.Text
   status           MessageStatus @default(DRAFT)
-  senderId         String
-  sender           User          @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  /** Portal user who sent the message; null when the message arrived from external email (Resend inbound). */
+  senderId         String?
+  sender           User?         @relation("SentMessages", fields: [senderId], references: [id], onDelete: SetNull)
   sentAt           DateTime?
   /** Sender moved this sent message to Trash (hidden from Sent until restored or purged). */
   senderTrashedAt  DateTime?
@@ -236,6 +237,13 @@ model InternalMessage {
   threadReplies    InternalMessage[] @relation("MailThreadRoot")
   /** When false, the sender's copy is hidden from Sent (used for replies; new mail stays true). */
   includeInSenderSent Boolean @default(true)
+  /** Parsed From when senderId is null (inbound internet mail). */
+  externalFromName  String?
+  externalFromEmail String?
+  /** Resend receiving email id — dedupes webhook retries. */
+  inboundResendId   String?   @unique
+  /** RFC5322 Message-ID (angle brackets stripped) for threading / In-Reply-To matching. */
+  rfcMessageId      String?
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 
@@ -243,6 +251,7 @@ model InternalMessage {
   attachments Attachment[]
 
   @@index([threadRootId])
+  @@index([rfcMessageId])
 }
 
 model InternalMessageRecipient {

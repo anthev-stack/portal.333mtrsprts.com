@@ -91,7 +91,9 @@ export async function deliverInternalMessageCopy(params: {
   senderInternalEmail: string;
   recipients: PortalMailRecipient[];
   attachments: { filename: string; url: string; mimeType?: string | null }[];
-}): Promise<null | { ok: true } | { ok: false; error: string }> {
+}): Promise<
+  null | { ok: true; messageId?: string } | { ok: false; error: string }
+> {
   if (!isMailOutboundEnabled()) return null;
 
   const toRaw: string[] = [];
@@ -149,7 +151,7 @@ export async function deliverInternalMessageCopy(params: {
 
   try {
     const transporter = createTransport();
-    await transporter.sendMail({
+    const info = await transporter.sendMail({
       from: portalMessageFromLine(params.senderName, params.senderInternalEmail),
       replyTo,
       to: toHeader,
@@ -158,7 +160,11 @@ export async function deliverInternalMessageCopy(params: {
       subject: params.subject,
       html: params.html,
     });
-    return { ok: true };
+    const messageId =
+      typeof info.messageId === "string" && info.messageId.trim()
+        ? info.messageId.trim()
+        : undefined;
+    return { ok: true, messageId };
   } catch (e) {
     console.error("[mail outbound] sendMail failed:", e);
     return {
