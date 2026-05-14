@@ -115,7 +115,10 @@ export async function processResendInboundEmail(emailId: string): Promise<{ ok: 
   if (existing) return { ok: true, skipped: "duplicate" };
 
   const data = await fetchResendReceivedEmail(emailId);
-  if (!data) return { ok: false, skipped: "fetch_failed" };
+  if (!data) {
+    console.error("[resend inbound] fetch_failed for emailId", emailId);
+    return { ok: false, skipped: "fetch_failed" };
+  }
 
   const fromParsed = parseFromHeader(data.from);
 
@@ -135,7 +138,15 @@ export async function processResendInboundEmail(emailId: string): Promise<{ ok: 
   consider(data.bcc, RK.BCC);
 
   const emails = [...byEmail.keys()];
-  if (emails.length === 0) return { ok: true, skipped: "no_recipients" };
+  if (emails.length === 0) {
+    console.warn("[resend inbound] no_recipients parsed from to/cc/bcc", {
+      emailId,
+      rawTo: data.to,
+      rawCc: data.cc,
+      rawBcc: data.bcc,
+    });
+    return { ok: true, skipped: "no_recipients" };
+  }
 
   const users = await prisma.user.findMany({
     where: { internalEmail: { in: emails, mode: "insensitive" } },
@@ -155,6 +166,10 @@ export async function processResendInboundEmail(emailId: string): Promise<{ ok: 
   }
 
   if (recipientCreates.length === 0) {
+    console.warn(
+      "[resend inbound] no_portal_recipients — To/Cc/Bcc did not match any User.internalEmail (case-insensitive)",
+      { emailId, recipientAddresses: emails },
+    );
     return { ok: true, skipped: "no_portal_recipients" };
   }
 
@@ -219,5 +234,10 @@ export async function processResendInboundEmail(emailId: string): Promise<{ ok: 
     });
   }
 
+  console.info("[resend inbound] created InternalMessage", {
+    messageId: message.id,
+    emailId,
+    portalRecipientCount: recipientCreates.length,
+  });
   return { ok: true };
 }

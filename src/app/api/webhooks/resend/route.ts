@@ -63,6 +63,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Missing email_id" }, { status: 400 });
   }
 
+  console.info("[webhooks/resend] email.received", { emailId, to: payload.data?.to });
+
   const result = await processResendInboundEmail(emailId);
   if (!result.ok) {
     return NextResponse.json({ error: "Could not process inbound email" }, { status: 500 });
