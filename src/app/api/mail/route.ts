@@ -144,8 +144,21 @@ function filterRecipientsForViewer<
 function withFooter(body: string, footer: string | null | undefined): string {
   const cleanedFooter = footer?.trim();
   if (!cleanedFooter) return body;
-  if (body.includes(cleanedFooter)) return body;
-  return `${body}\n\n<hr />\n<p>${cleanedFooter.replace(/\n/g, "<br />")}</p>`;
+  // Client composer / reply pre-inserts the footer as HTML (<br />, <hr />). Plain `includes(footer)` misses that and duplicates.
+  const footerAsHtml = cleanedFooter.replace(/\n/g, "<br />");
+  const footerVariants = [
+    cleanedFooter,
+    footerAsHtml,
+    cleanedFooter.replace(/\n/g, "<br>"),
+    cleanedFooter.replace(/\n/g, "<br/>"),
+  ];
+  for (const fragment of footerVariants) {
+    if (fragment && body.includes(fragment)) return body;
+  }
+  const collapsed = body.replace(/\s+/g, " ");
+  const collapsedFooter = footerAsHtml.replace(/\s+/g, " ");
+  if (collapsedFooter.length >= 8 && collapsed.includes(collapsedFooter)) return body;
+  return `${body}\n\n<hr />\n<p>${footerAsHtml}</p>`;
 }
 
 export async function GET(request: Request) {
