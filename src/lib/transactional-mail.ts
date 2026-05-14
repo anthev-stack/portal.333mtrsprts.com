@@ -22,6 +22,16 @@ function mailFromAddress(): string {
   );
 }
 
+/** From line for portal-composed mail: logged-in user's @domain identity (Resend: domain must be verified). */
+function portalMessageFromLine(senderName: string, senderInternalEmail: string): string {
+  const useGlobal =
+    process.env.MAIL_PORTAL_OUTBOUND_FROM?.trim().toLowerCase() === "global";
+  if (useGlobal) return mailFromAddress();
+  const email = senderInternalEmail.trim().toLowerCase();
+  const name = (senderName.trim() || email.split("@")[0]!).replace(/[<>]/g, "");
+  return `${name} <${email}>`;
+}
+
 function createTransport() {
   const port = Number(process.env.SMTP_PORT ?? "587");
   const secure =
@@ -140,7 +150,7 @@ export async function deliverInternalMessageCopy(params: {
   try {
     const transporter = createTransport();
     await transporter.sendMail({
-      from: mailFromAddress(),
+      from: portalMessageFromLine(params.senderName, params.senderInternalEmail),
       replyTo,
       to: toHeader,
       cc: ccHeader,
