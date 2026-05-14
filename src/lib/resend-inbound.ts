@@ -74,6 +74,61 @@ function getHeader(
   return undefined;
 }
 
+/** Message-IDs from References (oldest → newest in typical clients). */
+function parseMessageIdsFromReferences(raw: string | undefined): string[] {
+  if (!raw?.trim()) return [];
+  const ids: string[] = [];
+  const re = /<([^>]+)>/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(raw)) !== null) {
+    const n = normalizeMessageId(m[1]!);
+    if (n) ids.push(n);
+  }
+  return ids;
+}
+
+/**
+ * Link inbound mail to an existing thread. In-Reply-To often points at the other
+ * party's Message-ID (not stored here); References lists the chain — we walk
+ * newest ancestors first until we find a portal message rfcMessageId match.
+ */
+async function resolveThreadRootIdFromHeaders(
+  headers: Record<string, string | string[] | undefined> | null | undefined,
+): Promise<string | null> {
+  const inReplyRaw = getHeader(headers, "in-reply-to");
+  const refsRaw = getHeader(headers, "references");
+
+  const ordered: string[] = [];
+  if (inReplyRaw) ordered.push(normalizeMessageId(inReplyRaw));
+
+  const refIds = parseMessageIdsFromReferences(refsRaw);
+  for (let i = refIds.length - 1; i >= 0; i--) {
+    const id = refIds[i]!;
+    if (id && !ordered.includes(id)) ordered.push(id);
+  }
+
+  const seen = new Set<string>();
+  const unique = ordered.filter((id) => {
+    if (!id || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+  if (unique.length === 0) return null;
+
+  const parents = await prisma.internalMessage.findMany({
+    where: { rfcMessageId: { in: unique } },
+    select: { id: true, threadRootId: true, rfcMessageId: true },
+  });
+  const byRfc = new Map(
+    parents.filter((p) => p.rfcMessageId).map((p) => [p.rfcMessageId!, p]),
+  );
+  for (const mid of unique) {
+    const parent = byRfc.get(mid);
+    if (parent) return parent.threadRootId ?? parent.id;
+  }
+  return null;
+}
+
 export type ResendReceivedEmail = {
   id: string;
   from: string;
@@ -182,18 +237,9 @@ export async function processResendInboundEmail(emailId: string): Promise<{ ok: 
     bodyHtml = "<p></p>";
   }
 
-  let threadRootId: string | null = null;
-  const inReplyTo = getHeader(data.headers as Record<string, string | string[] | undefined>, "in-reply-to");
-  if (inReplyTo) {
-    const mid = normalizeMessageId(inReplyTo);
-    const parent = await prisma.internalMessage.findFirst({
-      where: { rfcMessageId: mid },
-      select: { id: true, threadRootId: true },
-    });
-    if (parent) {
-      threadRootId = parent.threadRootId ?? parent.id;
-    }
-  }
+  const threadRootId = await resolveThreadRootIdFromHeaders(
+    data.headers as Record<string, string | string[] | undefined>,
+  );
 
   const rfcId = data.message_id ? normalizeMessageId(data.message_id) : null;
 
