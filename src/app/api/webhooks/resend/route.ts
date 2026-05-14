@@ -47,7 +47,13 @@ export async function POST(request: Request) {
     );
   }
 
-  let payload: { type?: string; data?: { email_id?: string } };
+  type EmailReceivedData = {
+    email_id?: string;
+    to?: string[];
+    cc?: string[];
+    bcc?: string[];
+  };
+  let payload: { type?: string; data?: EmailReceivedData };
   try {
     payload = JSON.parse(rawBody) as typeof payload;
   } catch {
@@ -63,7 +69,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Missing email_id" }, { status: 400 });
   }
 
-  console.info("[webhooks/resend] email.received", { emailId, to: payload.data?.to });
+  console.info("[webhooks/resend] email.received", {
+    emailId,
+    to: payload.data?.to,
+  });
 
   const result = await processResendInboundEmail(emailId);
   if (!result.ok) {
