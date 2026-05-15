@@ -78,7 +78,16 @@ export default async function ArticlePage({
       <Card>
         <CardContent className="max-w-none py-6">
           <div
-            className="prose prose-sm max-w-none text-muted-foreground dark:prose-invert md:prose-base [&_img]:max-w-full [&_img]:rounded-md"
+            className={cn(
+              "max-w-none text-foreground dark:text-foreground",
+              /* Typography plugin may be absent — mirror TipTap output explicitly */
+              " [&_p]:my-2 [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-8 [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-8 [&_li]:my-1 [&_li]:ps-1",
+              "[&_h2]:mt-6 [&_h2]:mb-2 [&_h2]:text-2xl [&_h2]:font-semibold [&_h2]:tracking-tight",
+              "[&_h3]:mt-5 [&_h3]:mb-2 [&_h3]:text-xl [&_h3]:font-semibold [&_h3]:tracking-tight",
+              "[&_h4]:mt-4 [&_h4]:mb-1.5 [&_h4]:text-lg [&_h4]:font-semibold",
+              "[&_img]:mx-auto [&_img]:block [&_img]:max-h-[min(80vh,48rem)] [&_img]:max-w-full [&_img]:rounded-md [&_img]:object-contain",
+              "text-muted-foreground [&_strong]:text-foreground [&_h2]:text-foreground [&_h3]:text-foreground [&_h4]:text-foreground",
+            )}
             dangerouslySetInnerHTML={{ __html: article.content }}
           />
         </CardContent>

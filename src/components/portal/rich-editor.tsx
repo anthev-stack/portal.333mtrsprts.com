@@ -3,9 +3,25 @@
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Image from "@tiptap/extension-image";
+import TextAlign from "@tiptap/extension-text-align";
 import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Bold, ImagePlus, Italic, List, ListOrdered, Smile } from "lucide-react";
+import {
+  AlignCenter,
+  AlignLeft,
+  AlignRight,
+  Bold,
+  Heading2,
+  Heading3,
+  Heading4,
+  ImagePlus,
+  Italic,
+  List,
+  ListOrdered,
+  Pilcrow,
+  Smile,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 
@@ -30,6 +46,45 @@ const commentStarterKit = StarterKit.configure({
   underline: false,
   link: false,
 });
+
+/** Absolute URL so images load reliably (e.g. TipTap / SSR edge cases); GIFs from Giphy stay https. */
+function resolvePublicMediaSrc(url: string): string {
+  const trimmed = url.trim();
+  if (!trimmed) return trimmed;
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  const path = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+  if (typeof window === "undefined") return path;
+  const base =
+    (process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ?? "") || window.location.origin;
+  return `${base}${path}`;
+}
+
+function buildExtensions(commentMode: boolean) {
+  const image = Image.configure({
+    inline: false,
+    allowBase64: false,
+    HTMLAttributes: {
+      class: "max-w-full h-auto rounded-md align-middle",
+    },
+  });
+
+  if (commentMode) {
+    return [commentStarterKit, image];
+  }
+
+  return [
+    StarterKit.configure({
+      heading: {
+        levels: [2, 3, 4],
+      },
+    }),
+    TextAlign.configure({
+      types: ["heading", "paragraph"],
+      alignments: ["left", "center", "right"],
+    }),
+    image,
+  ];
+}
 
 export function RichEditor({
   content,
@@ -56,19 +111,19 @@ export function RichEditor({
 
   const editor = useEditor(
     {
-      extensions: [commentMode ? commentStarterKit : StarterKit, Image],
+      extensions: buildExtensions(commentMode),
       content,
       immediatelyRender: false,
       editorProps: {
         attributes: {
           class: cn(
-            "rounded-md border bg-background px-3 py-2 text-sm focus:outline-none",
+            "prose-mirror-editor rounded-md border bg-background px-3 py-2 text-sm focus:outline-none",
             compact ? "min-h-[100px]" : "min-h-[180px]",
           ),
         },
       },
-      onUpdate: ({ editor }) => {
-        onChange(editor.getHTML());
+      onUpdate: ({ editor: ed }) => {
+        onChange(ed.getHTML());
       },
     },
     [commentMode],
@@ -84,8 +139,18 @@ export function RichEditor({
 
   async function insertImage(file: File) {
     if (!editor || !onUploadFile) return;
-    const uploaded = await onUploadFile(file);
-    editor.chain().focus().setImage({ src: uploaded.url }).run();
+    const lower = file.name.toLowerCase();
+    if (file.type === "image/heic" || lower.endsWith(".heic") || lower.endsWith(".heif")) {
+      toast.error("HEIC/HEIF isn’t supported in browsers. Please use JPG, PNG, GIF, or WebP.");
+      return;
+    }
+    try {
+      const uploaded = await onUploadFile(file);
+      const src = resolvePublicMediaSrc(uploaded.url);
+      editor.chain().focus().setImage({ src }).run();
+    } catch {
+      toast.error("Could not upload image. Try JPG or PNG under a few MB.");
+    }
   }
 
   async function loadGifs(query: string) {
@@ -130,8 +195,79 @@ export function RichEditor({
             <Button
               type="button"
               size="icon"
+              variant={editor.isActive("paragraph") ? "secondary" : "ghost"}
+              className="size-8"
+              title="Body text"
+              onClick={() => editor.chain().focus().setParagraph().run()}
+            >
+              <Pilcrow className="size-4" />
+            </Button>
+            <Button
+              type="button"
+              size="icon"
+              variant={editor.isActive("heading", { level: 2 }) ? "secondary" : "ghost"}
+              className="size-8"
+              title="Large section title"
+              onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
+            >
+              <Heading2 className="size-4" />
+            </Button>
+            <Button
+              type="button"
+              size="icon"
+              variant={editor.isActive("heading", { level: 3 }) ? "secondary" : "ghost"}
+              className="size-8"
+              title="Medium section title"
+              onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
+            >
+              <Heading3 className="size-4" />
+            </Button>
+            <Button
+              type="button"
+              size="icon"
+              variant={editor.isActive("heading", { level: 4 }) ? "secondary" : "ghost"}
+              className="size-8"
+              title="Small section title"
+              onClick={() => editor.chain().focus().toggleHeading({ level: 4 }).run()}
+            >
+              <Heading4 className="size-4" />
+            </Button>
+            <Button
+              type="button"
+              size="icon"
+              variant={editor.isActive({ textAlign: "left" }) ? "secondary" : "ghost"}
+              className="size-8"
+              title="Align left"
+              onClick={() => editor.chain().focus().setTextAlign("left").run()}
+            >
+              <AlignLeft className="size-4" />
+            </Button>
+            <Button
+              type="button"
+              size="icon"
+              variant={editor.isActive({ textAlign: "center" }) ? "secondary" : "ghost"}
+              className="size-8"
+              title="Align center"
+              onClick={() => editor.chain().focus().setTextAlign("center").run()}
+            >
+              <AlignCenter className="size-4" />
+            </Button>
+            <Button
+              type="button"
+              size="icon"
+              variant={editor.isActive({ textAlign: "right" }) ? "secondary" : "ghost"}
+              className="size-8"
+              title="Align right"
+              onClick={() => editor.chain().focus().setTextAlign("right").run()}
+            >
+              <AlignRight className="size-4" />
+            </Button>
+            <Button
+              type="button"
+              size="icon"
               variant={editor.isActive("bulletList") ? "secondary" : "ghost"}
               className="size-8"
+              title="Bullet list"
               onClick={() => editor.chain().focus().toggleBulletList().run()}
             >
               <List className="size-4" />
@@ -141,6 +277,7 @@ export function RichEditor({
               size="icon"
               variant={editor.isActive("orderedList") ? "secondary" : "ghost"}
               className="size-8"
+              title="Numbered list"
               onClick={() => editor.chain().focus().toggleOrderedList().run()}
             >
               <ListOrdered className="size-4" />
@@ -150,7 +287,7 @@ export function RichEditor({
         <input
           ref={imageInputRef}
           type="file"
-          accept="image/*"
+          accept="image/jpeg,image/png,image/gif,image/webp,image/svg+xml,.jpg,.jpeg,.png,.gif,.webp,.svg"
           className="hidden"
           onChange={(e) => {
             const file = e.target.files?.[0];
@@ -167,7 +304,7 @@ export function RichEditor({
             variant="ghost"
             className="size-8"
             onClick={() => imageInputRef.current?.click()}
-            title="Insert image"
+            title="Insert image (JPG, PNG, GIF, WebP)"
           >
             <ImagePlus className="size-4" />
           </Button>

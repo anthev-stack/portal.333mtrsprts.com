@@ -103,8 +103,8 @@ export default function NewArticlePage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">New article</h1>
         <p className="text-sm text-muted-foreground">
-          Format with bold, italics, lists, images, and GIFs — same tools as mail. Add downloadable
-          documents below the editor.
+          Format with bold, italic, headings (H2–H4), alignment, bullet or numbered lists, images (JPG/PNG/GIF/WebP),
+          and GIFs — same tools as mail for body content. Add downloadable documents below the editor.
         </p>
       </div>
       <div className="space-y-4 rounded-xl border bg-card p-6 shadow-sm">
