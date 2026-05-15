@@ -66,25 +66,25 @@ export function LoginForm() {
         transition={{ duration: 0.35, ease: "easeOut" }}
         className="w-full max-w-md"
       >
-        <div className="mb-8 flex w-full flex-col items-center gap-4 text-center">
-          <div className="flex h-20 w-full max-w-[220px] items-center justify-center">
+        <div className="mb-8 flex w-full flex-col items-center gap-4">
+          <div className="relative mx-auto h-20 w-full max-w-[220px] shrink-0">
             <img
               src="/images/logo-black.png"
               alt=""
-              className="mx-auto max-h-20 w-auto max-w-full object-contain dark:hidden"
+              className="absolute inset-0 m-auto max-h-20 w-auto max-w-full object-contain dark:hidden"
               width={220}
               height={80}
             />
             <img
               src="/images/logo-white.png"
               alt=""
-              className="mx-auto hidden max-h-20 w-auto max-w-full object-contain dark:block"
+              className="absolute inset-0 m-auto hidden max-h-20 w-auto max-w-full object-contain dark:block"
               width={220}
               height={80}
             />
           </div>
           <div className="flex w-full justify-center px-2">
-            <p className="m-0 max-w-full text-center text-5xl font-semibold leading-none tracking-tight sm:text-6xl md:text-7xl">
+            <p className="m-0 w-fit max-w-full text-center text-5xl font-semibold leading-none tracking-tight sm:text-6xl md:text-7xl">
               MOTORSPORTS
             </p>
           </div>
