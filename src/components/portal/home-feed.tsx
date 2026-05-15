@@ -18,12 +18,36 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { RichEditor } from "@/components/portal/rich-editor";
 import { htmlHasMeaningfulBody } from "@/lib/html";
+
+/** Plain-text legacy posts → editor HTML */
+function feedPostToEditorHtml(raw: string): string {
+  const t = raw.trim();
+  if (!t) return "<p></p>";
+  if (/<[a-z]/i.test(t)) return raw;
+  const esc = t
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+  const paras = esc.split(/\n+/).filter(Boolean);
+  return paras.length ? paras.map((p) => `<p>${p}</p>`).join("") : "<p></p>";
+}
+
+/** Plain-text legacy posts → safe HTML for reading */
+function feedPostDisplayHtml(raw: string): string {
+  const t = raw.trim();
+  if (!t) return "";
+  if (/<[a-z]/i.test(t)) return raw;
+  const esc = t
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+  return `<p>${esc.replace(/\n/g, "<br />")}</p>`;
+}
 
 type FeedComment = {
   id: string;
@@ -64,7 +88,7 @@ export function HomeFeed() {
   const [me, setMe] = useState<Me | null>(null);
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
-  const [content, setContent] = useState("");
+  const [bodyHtml, setBodyHtml] = useState("<p></p>");
   const [pinned, setPinned] = useState(false);
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>(
     {},
@@ -105,6 +129,21 @@ export function HomeFeed() {
     })();
   }, []);
 
+  async function uploadInlineImage(file: File) {
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch("/api/upload", {
+      method: "POST",
+      credentials: "include",
+      body: form,
+    });
+    if (!res.ok) {
+      throw new Error("Upload failed");
+    }
+    const data = (await res.json()) as { url: string };
+    return { url: data.url };
+  }
+
   async function refresh() {
     const pRes = await fetch("/api/posts", { credentials: "include" });
     if (pRes.ok) {
@@ -122,11 +161,19 @@ export function HomeFeed() {
   }
 
   async function createPost() {
+    if (!title.trim()) {
+      toast.error("Title is required");
+      return;
+    }
+    if (!htmlHasMeaningfulBody(bodyHtml)) {
+      toast.error("Add post body text, an image, or a GIF");
+      return;
+    }
     const res = await fetch("/api/posts", {
       method: "POST",
       credentials: "include",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ title, content, pinned }),
+      body: JSON.stringify({ title: title.trim(), content: bodyHtml, pinned }),
     });
     if (!res.ok) {
       const msg =
@@ -140,7 +187,7 @@ export function HomeFeed() {
     toast.success("Published");
     setOpen(false);
     setTitle("");
-    setContent("");
+    setBodyHtml("<p></p>");
     setPinned(false);
     await refresh();
   }
@@ -148,7 +195,7 @@ export function HomeFeed() {
   async function addComment(postId: string) {
     const html = commentDrafts[postId] ?? "<p></p>";
     if (!htmlHasMeaningfulBody(html)) {
-      toast.error("Write something or add a GIF");
+      toast.error("Write something, add a list item, an image, or a GIF");
       return;
     }
     const res = await fetch(`/api/posts/${postId}/comments`, {
@@ -188,18 +235,22 @@ export function HomeFeed() {
   function openEditPost(post: Post) {
     setEditPost(post);
     setEditTitle(post.title);
-    setEditContent(post.content);
+    setEditContent(feedPostToEditorHtml(post.content));
     setEditPinned(post.pinned);
   }
 
   async function submitEditPost() {
-    if (!editPost || !editTitle.trim() || !editContent.trim()) {
-      toast.error("Title and content are required");
+    if (!editPost || !editTitle.trim()) {
+      toast.error("Title is required");
+      return;
+    }
+    if (!htmlHasMeaningfulBody(editContent)) {
+      toast.error("Post body cannot be empty");
       return;
     }
     const body: { title: string; content: string; pinned?: boolean } = {
       title: editTitle.trim(),
-      content: editContent.trim(),
+      content: editContent,
     };
     if (me?.role === "ADMIN") body.pinned = editPinned;
     const res = await fetch(`/api/posts/${editPost.id}`, {
@@ -323,9 +374,12 @@ export function HomeFeed() {
                   )}
               </CardHeader>
               <CardContent className="space-y-4">
-                <p className="whitespace-pre-wrap text-sm text-muted-foreground">
-                  {post.content}
-                </p>
+                <div
+                  className="text-sm text-muted-foreground [&_h2]:mt-3 [&_h2]:text-lg [&_h2]:font-semibold [&_h3]:mt-2 [&_h3]:text-base [&_h3]:font-semibold [&_h4]:font-semibold [&_img]:max-h-[min(70vh,36rem)] [&_img]:max-w-full [&_img]:rounded-md [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-6 [&_p]:my-2 [&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-6 [&_strong]:text-foreground"
+                  dangerouslySetInnerHTML={{
+                    __html: feedPostDisplayHtml(post.content),
+                  }}
+                />
                 <div className="flex flex-wrap items-center gap-2">
                   <Button
                     variant="outline"
@@ -361,7 +415,7 @@ export function HomeFeed() {
                             </span>
                           </div>
                           <div
-                            className="text-sm text-muted-foreground [&_img]:max-h-48 [&_img]:max-w-full [&_img]:rounded-md [&_p]:my-1 [&_p:empty]:min-h-0"
+                            className="text-sm text-muted-foreground [&_h2]:text-base [&_h2]:font-semibold [&_h3]:text-sm [&_h3]:font-semibold [&_img]:max-h-48 [&_img]:max-w-full [&_img]:rounded-md [&_ol]:my-1 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-1 [&_p:empty]:min-h-0 [&_ul]:my-1 [&_ul]:list-disc [&_ul]:pl-5 [&_strong]:text-foreground"
                             dangerouslySetInnerHTML={{ __html: c.content }}
                           />
                         </div>
@@ -389,11 +443,12 @@ export function HomeFeed() {
                   <RichEditor
                     key={`comment-${post.id}-${commentEditorKey[post.id] ?? 0}`}
                     compact
-                    commentMode
+                    feedCommentMode
                     content={commentDrafts[post.id] ?? "<p></p>"}
                     onChange={(html) =>
                       setCommentDrafts((d) => ({ ...d, [post.id]: html }))
                     }
+                    onUploadFile={uploadInlineImage}
                   />
                   <Button
                     size="sm"
@@ -418,7 +473,7 @@ export function HomeFeed() {
       </div>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-lg sm:max-w-lg" showCloseButton>
+        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto sm:max-w-2xl" showCloseButton>
           <DialogHeader>
             <DialogTitle>New post</DialogTitle>
           </DialogHeader>
@@ -432,13 +487,14 @@ export function HomeFeed() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="pc">Content</Label>
-              <Textarea
-                id="pc"
-                rows={5}
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-              />
+              <Label htmlFor="feed-post-body">Content</Label>
+              <div className="min-h-[220px] rounded-md border bg-background p-2">
+                <RichEditor
+                  content={bodyHtml}
+                  onChange={setBodyHtml}
+                  onUploadFile={uploadInlineImage}
+                />
+              </div>
             </div>
             {me?.role === "ADMIN" && (
               <div className="flex items-center justify-between rounded-lg border px-3 py-2">
@@ -467,7 +523,7 @@ export function HomeFeed() {
           if (!o) setEditPost(null);
         }}
       >
-        <DialogContent className="max-w-lg sm:max-w-lg" showCloseButton>
+        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto sm:max-w-2xl" showCloseButton>
           <DialogHeader>
             <DialogTitle>Edit post</DialogTitle>
             <DialogDescription>
@@ -486,13 +542,14 @@ export function HomeFeed() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="edit-pc">Content</Label>
-              <Textarea
-                id="edit-pc"
-                rows={5}
-                value={editContent}
-                onChange={(e) => setEditContent(e.target.value)}
-              />
+              <Label htmlFor="feed-edit-body">Content</Label>
+              <div className="min-h-[220px] rounded-md border bg-background p-2">
+                <RichEditor
+                  content={editContent}
+                  onChange={setEditContent}
+                  onUploadFile={uploadInlineImage}
+                />
+              </div>
             </div>
             {me?.role === "ADMIN" && (
               <div className="flex items-center justify-between rounded-lg border px-3 py-2">

@@ -47,19 +47,32 @@ const commentStarterKit = StarterKit.configure({
   link: false,
 });
 
+/** Team-feed comments: bold, italic, lists, images, GIF — no headings / alignment. */
+const feedCommentStarterKit = StarterKit.configure({
+  blockquote: false,
+  code: false,
+  codeBlock: false,
+  heading: false,
+  horizontalRule: false,
+  strike: false,
+  underline: false,
+  link: false,
+});
+
 /** Absolute URL so images load reliably (e.g. TipTap / SSR edge cases); GIFs from Giphy stay https. */
 function resolvePublicMediaSrc(url: string): string {
   const trimmed = url.trim();
   if (!trimmed) return trimmed;
   if (/^https?:\/\//i.test(trimmed)) return trimmed;
   const path = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
-  if (typeof window === "undefined") return path;
-  const base =
-    (process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ?? "") || window.location.origin;
-  return `${base}${path}`;
+  if (typeof window !== "undefined") {
+    return `${window.location.origin}${path}`;
+  }
+  const base = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ?? "";
+  return base ? `${base}${path}` : path;
 }
 
-function buildExtensions(commentMode: boolean) {
+function buildExtensions(commentMode: boolean, feedCommentMode: boolean) {
   const image = Image.configure({
     inline: false,
     allowBase64: false,
@@ -67,6 +80,10 @@ function buildExtensions(commentMode: boolean) {
       class: "max-w-full h-auto rounded-md align-middle",
     },
   });
+
+  if (feedCommentMode) {
+    return [feedCommentStarterKit, image];
+  }
 
   if (commentMode) {
     return [commentStarterKit, image];
@@ -92,8 +109,10 @@ export function RichEditor({
   className,
   onUploadFile,
   compact = false,
-  /** Team-feed comments: bold, italic, GIF only (no lists, headings, etc.). */
+  /** Ultra-minimal composer (bold, italic, image, GIF only). Prefer `feedCommentMode` for team feed. */
   commentMode = false,
+  /** Team-feed comments: adds bullet/numbered lists; still compact-friendly. */
+  feedCommentMode = false,
 }: {
   content: string;
   onChange: (html: string) => void;
@@ -102,6 +121,7 @@ export function RichEditor({
   /** Shorter editor + GIF picker for inline comment composers. */
   compact?: boolean;
   commentMode?: boolean;
+  feedCommentMode?: boolean;
 }) {
   const [gifOpen, setGifOpen] = useState(false);
   const [gifQuery, setGifQuery] = useState("");
@@ -111,7 +131,7 @@ export function RichEditor({
 
   const editor = useEditor(
     {
-      extensions: buildExtensions(commentMode),
+      extensions: buildExtensions(commentMode, feedCommentMode),
       content,
       immediatelyRender: false,
       editorProps: {
@@ -126,8 +146,10 @@ export function RichEditor({
         onChange(ed.getHTML());
       },
     },
-    [commentMode],
+    [commentMode, feedCommentMode],
   );
+
+  const fullDocToolbar = !commentMode && !feedCommentMode;
 
   useEffect(() => {
     if (!editor) return;
@@ -190,7 +212,31 @@ export function RichEditor({
         >
           <Italic className="size-4" />
         </Button>
-        {!commentMode && (
+        {feedCommentMode && (
+          <>
+            <Button
+              type="button"
+              size="icon"
+              variant={editor.isActive("bulletList") ? "secondary" : "ghost"}
+              className="size-8"
+              title="Bullet list"
+              onClick={() => editor.chain().focus().toggleBulletList().run()}
+            >
+              <List className="size-4" />
+            </Button>
+            <Button
+              type="button"
+              size="icon"
+              variant={editor.isActive("orderedList") ? "secondary" : "ghost"}
+              className="size-8"
+              title="Numbered list"
+              onClick={() => editor.chain().focus().toggleOrderedList().run()}
+            >
+              <ListOrdered className="size-4" />
+            </Button>
+          </>
+        )}
+        {fullDocToolbar && (
           <>
             <Button
               type="button"

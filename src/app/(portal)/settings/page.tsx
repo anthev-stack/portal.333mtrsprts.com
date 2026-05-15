@@ -54,7 +54,11 @@ export default function SettingsPage() {
     const form = new FormData();
     form.append("file", file);
     form.append("purpose", "profile");
-    const res = await fetch("/api/upload", { method: "POST", body: form });
+    const res = await fetch("/api/upload", {
+      method: "POST",
+      credentials: "include",
+      body: form,
+    });
     if (!res.ok) {
       const err = (await res.json().catch(() => null)) as { error?: string } | null;
       throw new Error(err?.error ?? "Upload failed");
@@ -253,7 +257,11 @@ export default function SettingsPage() {
             <Label>Profile photo</Label>
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
               <Avatar className="size-20 shrink-0">
-                <AvatarImage src={user.imageUrl ?? undefined} alt="" />
+                <AvatarImage
+                  key={user.imageUrl ?? "no-avatar"}
+                  src={user.imageUrl ?? undefined}
+                  alt=""
+                />
                 <AvatarFallback className="text-lg">
                   {user.name.trim()
                     ? user.name.slice(0, 2).toUpperCase()
