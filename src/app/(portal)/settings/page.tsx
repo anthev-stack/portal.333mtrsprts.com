@@ -19,7 +19,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { ProfilePhotoUpload } from "@/components/portal/profile-photo-upload";
+import {
+  clearProfilePhoto,
+  uploadAndSaveProfilePhoto,
+} from "@/lib/profile-photo";
+import { dispatchPortalProfileUpdated } from "@/lib/portal-profile-events";
 
 type User = {
   id: string;
@@ -34,6 +39,7 @@ type User = {
   department: string | null;
   profileBlurp: string | null;
   imageUrl: string | null;
+  role: "STAFF" | "ADMIN";
   themePreference: ThemePreference;
   notifyEmail: boolean;
   notifyInApp: boolean;
@@ -50,35 +56,19 @@ export default function SettingsPage() {
   const [newPassword, setNewPassword] = useState("");
   const [photoBusy, setPhotoBusy] = useState(false);
 
-  async function uploadProfileImage(file: File) {
-    const form = new FormData();
-    form.append("file", file);
-    form.append("purpose", "profile");
-    const res = await fetch("/api/upload", {
-      method: "POST",
-      credentials: "include",
-      body: form,
+  function syncProfilePhoto(snapshot: { name: string; imageUrl: string | null }) {
+    setUser((current) => {
+      if (!current) return current;
+      const next = { ...current, name: snapshot.name, imageUrl: snapshot.imageUrl };
+      dispatchPortalProfileUpdated({
+        name: next.name,
+        imageUrl: next.imageUrl,
+        internalEmail: next.internalEmail,
+        role: next.role,
+      });
+      return next;
     });
-    if (!res.ok) {
-      const err = (await res.json().catch(() => null)) as { error?: string } | null;
-      throw new Error(err?.error ?? "Upload failed");
-    }
-    const data = (await res.json()) as { url: string };
-    return data.url;
-  }
-
-  async function persistProfilePhotoUrl(url: string | null) {
-    const res = await fetch("/api/me", {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ imageUrl: url }),
-    });
-    if (!res.ok) {
-      const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      throw new Error(body?.error ?? "Could not save profile photo");
-    }
-    return (await res.json()) as { user: User };
+    router.refresh();
   }
 
   useEffect(() => {
@@ -250,77 +240,41 @@ export default function SettingsPage() {
         <CardContent className="space-y-4">
           <div className="space-y-3">
             <Label>Profile photo</Label>
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
-              <Avatar className="size-20 shrink-0">
-                <AvatarImage
-                  key={user.imageUrl ?? "no-avatar"}
-                  src={user.imageUrl ?? undefined}
-                  alt=""
-                />
-                <AvatarFallback className="text-lg">
-                  {user.name.trim()
-                    ? user.name.slice(0, 2).toUpperCase()
-                    : "—"}
-                </AvatarFallback>
-              </Avatar>
-              <div className="flex min-w-0 flex-1 flex-col gap-3">
-                <Input
-                  type="file"
-                  accept="image/*"
-                  disabled={photoBusy}
-                  className="cursor-pointer text-sm file:mr-2"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    e.target.value = "";
-                    if (!f) return;
-                    void (async () => {
-                      setPhotoBusy(true);
-                      try {
-                        const url = await uploadProfileImage(f);
-                        const { user: updated } = await persistProfilePhotoUrl(url);
-                        setUser(updated);
-                        toast.success("Profile photo saved");
-                        router.refresh();
-                      } catch (err) {
-                        toast.error(
-                          err instanceof Error ? err.message : "Upload failed",
-                        );
-                      } finally {
-                        setPhotoBusy(false);
-                      }
-                    })();
-                  }}
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="self-start"
-                  disabled={photoBusy || !user.imageUrl}
-                  onClick={() => {
-                    void (async () => {
-                      setPhotoBusy(true);
-                      try {
-                        const { user: updated } = await persistProfilePhotoUrl(null);
-                        setUser(updated);
-                        toast.success("Profile photo removed");
-                        router.refresh();
-                      } catch (err) {
-                        toast.error(
-                          err instanceof Error
-                            ? err.message
-                            : "Could not remove photo",
-                        );
-                      } finally {
-                        setPhotoBusy(false);
-                      }
-                    })();
-                  }}
-                >
-                  Remove profile photo
-                </Button>
-              </div>
-            </div>
+            <ProfilePhotoUpload
+              name={user.name}
+              imageUrl={user.imageUrl}
+              busy={photoBusy}
+              onPickFile={async (file) => {
+                setPhotoBusy(true);
+                try {
+                  const snapshot = await uploadAndSaveProfilePhoto(file);
+                  syncProfilePhoto(snapshot);
+                  toast.success("Profile photo saved");
+                } catch (err) {
+                  toast.error(
+                    err instanceof Error ? err.message : "Upload failed",
+                  );
+                } finally {
+                  setPhotoBusy(false);
+                }
+              }}
+              onRemove={async () => {
+                setPhotoBusy(true);
+                try {
+                  const snapshot = await clearProfilePhoto();
+                  syncProfilePhoto(snapshot);
+                  toast.success("Profile photo removed");
+                } catch (err) {
+                  toast.error(
+                    err instanceof Error
+                      ? err.message
+                      : "Could not remove photo",
+                  );
+                } finally {
+                  setPhotoBusy(false);
+                }
+              }}
+            />
           </div>
           <Separator />
           <div className="space-y-2">

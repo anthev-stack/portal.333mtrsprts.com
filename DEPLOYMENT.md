@@ -31,6 +31,8 @@ docker compose -f docker-compose.prod.yml ps
 
 The image runs `prisma migrate deploy` before Next.js starts (see `Dockerfile` `CMD`). `NEXT_PUBLIC_APP_URL` must be set at **build** time so the client bundle gets the correct public URL.
 
+Profile photos are stored under `public/uploads` and served via `/uploads/…` (rewritten to an authenticated API route). The prod compose file mounts a **`portal_uploads`** volume so uploads survive container rebuilds.
+
 ### First-time seed (optional)
 
 ```bash

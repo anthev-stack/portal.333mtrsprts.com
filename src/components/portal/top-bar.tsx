@@ -17,6 +17,7 @@ import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { PortalThemeLogo } from "@/components/portal/logo";
 import { PortalSidebar } from "@/components/portal/sidebar";
 import { SearchCommand } from "@/components/portal/search-command";
+import { PORTAL_PROFILE_UPDATED_EVENT } from "@/lib/portal-profile-events";
 
 type Me = {
   name: string;
@@ -56,6 +57,17 @@ export function PortalTopBar({ initialMe }: { initialMe: Me | null }) {
       setMe(data.user);
     })();
   }, [initialMe]);
+
+  useEffect(() => {
+    const onProfileUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<Me>).detail;
+      if (!detail) return;
+      setMe((prev) => (prev ? { ...prev, ...detail } : detail));
+    };
+    window.addEventListener(PORTAL_PROFILE_UPDATED_EVENT, onProfileUpdated);
+    return () =>
+      window.removeEventListener(PORTAL_PROFILE_UPDATED_EVENT, onProfileUpdated);
+  }, []);
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });

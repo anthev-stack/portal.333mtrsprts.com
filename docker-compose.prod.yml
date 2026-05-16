@@ -55,6 +55,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    volumes:
+      - portal_uploads:/app/public/uploads
 
   # One-off: creates admin@333mtrsprts.com + sample data (see prisma/seed.ts). Not started by `up`.
   # Run: docker compose -f docker-compose.prod.yml --profile seed run --rm seed
@@ -74,3 +76,4 @@ services:
 
 volumes:
   pgdata:
+  portal_uploads:

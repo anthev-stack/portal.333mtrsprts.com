@@ -36,6 +36,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
+import { ProfilePhotoUpload } from "@/components/portal/profile-photo-upload";
 
 type UserRow = {
   id: string;
@@ -505,53 +506,29 @@ export default function AdminPage() {
                 <div className="space-y-6 px-6 py-4 pb-6">
                   <div className="space-y-3">
                     <Label>Profile photo</Label>
-                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
-                      <Avatar className="size-20 shrink-0">
-                        <AvatarImage src={editDraft.imageUrl ?? undefined} alt="" />
-                        <AvatarFallback className="text-lg">
-                          {editDraft.name.slice(0, 2).toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="flex min-w-0 flex-1 flex-col gap-2">
-                        <Input
-                          type="file"
-                          accept="image/*"
-                          disabled={editPhotoBusy || editSaving}
-                          className="cursor-pointer text-sm file:mr-2"
-                          onChange={(e) => {
-                            const f = e.target.files?.[0];
-                            e.target.value = "";
-                            if (!f) return;
-                            void (async () => {
-                              setEditPhotoBusy(true);
-                              try {
-                                const url = await uploadProfileImage(f);
-                                setEditDraft((d) => (d ? { ...d, imageUrl: url } : null));
-                                toast.success("Photo uploaded — click Save to apply");
-                              } catch (err) {
-                                toast.error(
-                                  err instanceof Error ? err.message : "Upload failed",
-                                );
-                              } finally {
-                                setEditPhotoBusy(false);
-                              }
-                            })();
-                          }}
-                        />
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="self-start"
-                          disabled={editPhotoBusy || editSaving || !editDraft.imageUrl}
-                          onClick={() =>
-                            setEditDraft((d) => (d ? { ...d, imageUrl: null } : null))
-                          }
-                        >
-                          Remove photo
-                        </Button>
-                      </div>
-                    </div>
+                    <ProfilePhotoUpload
+                      name={editDraft.name}
+                      imageUrl={editDraft.imageUrl}
+                      busy={editPhotoBusy}
+                      disabled={editSaving}
+                      onPickFile={async (file) => {
+                        setEditPhotoBusy(true);
+                        try {
+                          const url = await uploadProfileImage(file);
+                          setEditDraft((d) => (d ? { ...d, imageUrl: url } : null));
+                          toast.success("Photo uploaded — click Save changes to apply");
+                        } catch (err) {
+                          toast.error(
+                            err instanceof Error ? err.message : "Upload failed",
+                          );
+                        } finally {
+                          setEditPhotoBusy(false);
+                        }
+                      }}
+                      onRemove={() => {
+                        setEditDraft((d) => (d ? { ...d, imageUrl: null } : null));
+                      }}
+                    />
                   </div>
 
                   <Separator />
