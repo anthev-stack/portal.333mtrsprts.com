@@ -1,7 +1,14 @@
 import type { Metadata } from "next";
-import { Roboto, Roboto_Mono } from "next/font/google";
+import { Cormorant, Roboto, Roboto_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/providers";
+
+const cormorant = Cormorant({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-heading",
+  display: "swap",
+});
 
 const roboto = Roboto({
   weight: ["300", "400", "500", "700"],
@@ -30,7 +37,7 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={`${roboto.variable} ${robotoMono.variable} h-full font-sans antialiased`}
+      className={`${cormorant.variable} ${roboto.variable} ${robotoMono.variable} h-full font-sans antialiased`}
     >
       <body className="min-h-dvh font-sans">
         <Providers>{children}</Providers>
