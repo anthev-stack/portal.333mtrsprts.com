@@ -491,7 +491,7 @@ export default function AdminPage() {
           if (!o) setEditDraft(null);
         }}
       >
-        <DialogContent className="flex max-h-[min(90vh,840px)] max-w-2xl flex-col gap-0 overflow-hidden p-0">
+        <DialogContent className="!flex max-h-[min(90vh,840px)] w-full max-w-2xl flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
           <DialogHeader className="shrink-0 space-y-1 border-b px-6 py-4">
             <DialogTitle>Edit user{editDraft ? ` — ${editDraft.name}` : ""}</DialogTitle>
             <DialogDescription>
@@ -501,8 +501,8 @@ export default function AdminPage() {
 
           {editDraft ? (
             <>
-              <ScrollArea className="min-h-0 flex-1">
-                <div className="space-y-6 px-6 py-4">
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+                <div className="space-y-6 px-6 py-4 pb-6">
                   <div className="space-y-3">
                     <Label>Profile photo</Label>
                     <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
@@ -639,7 +639,7 @@ export default function AdminPage() {
                         }
                       />
                     </div>
-                    <div className="space-y-2">
+                    <div className="space-y-2 sm:col-span-2">
                       <Label htmlFor="eu-phone">Phone</Label>
                       <Input
                         id="eu-phone"
@@ -651,7 +651,7 @@ export default function AdminPage() {
                         }
                       />
                     </div>
-                    <div className="space-y-2 sm:col-span-2">
+                    <div className="space-y-2">
                       <Label htmlFor="eu-ec">Emergency contact</Label>
                       <Input
                         id="eu-ec"
@@ -663,7 +663,7 @@ export default function AdminPage() {
                         }
                       />
                     </div>
-                    <div className="space-y-2 sm:col-span-2">
+                    <div className="space-y-2">
                       <Label htmlFor="eu-ep">Emergency phone</Label>
                       <Input
                         id="eu-ep"
@@ -845,9 +845,9 @@ export default function AdminPage() {
                     </div>
                   </div>
                 </div>
-              </ScrollArea>
+              </div>
 
-              <DialogFooter className="shrink-0 gap-2 border-t px-6 py-4 sm:justify-end">
+              <DialogFooter className="!mx-0 !mb-0 shrink-0 gap-2 rounded-none border-t bg-background px-6 py-4 sm:justify-end">
                 <Button variant="outline" onClick={() => setEditDraft(null)}>
                   Cancel
                 </Button>
