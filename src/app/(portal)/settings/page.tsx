@@ -48,38 +48,6 @@ export default function SettingsPage() {
   const [user, setUser] = useState<User | null>(null);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
-  const [photoBusy, setPhotoBusy] = useState(false);
-
-  async function uploadProfileImage(file: File) {
-    const form = new FormData();
-    form.append("file", file);
-    form.append("purpose", "profile");
-    const res = await fetch("/api/upload", {
-      method: "POST",
-      credentials: "include",
-      body: form,
-    });
-    if (!res.ok) {
-      const err = (await res.json().catch(() => null)) as { error?: string } | null;
-      throw new Error(err?.error ?? "Upload failed");
-    }
-    const data = (await res.json()) as { url: string };
-    return data.url;
-  }
-
-  async function persistProfilePhotoUrl(url: string | null) {
-    const res = await fetch("/api/me", {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ imageUrl: url }),
-    });
-    if (!res.ok) {
-      const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      throw new Error(body?.error ?? "Could not save profile photo");
-    }
-    return (await res.json()) as { user: User };
-  }
 
   useEffect(() => {
     void (async () => {
@@ -100,12 +68,7 @@ export default function SettingsPage() {
         externalEmail: user.externalEmail,
         address: user.address,
         phone: user.phone,
-        emergencyContact: user.emergencyContact,
-        emergencyPhone: user.emergencyPhone,
-        position: user.position,
-        department: user.department,
         profileBlurp: user.profileBlurp?.trim() ? user.profileBlurp.trim() : null,
-        imageUrl: user.imageUrl,
         themePreference: user.themePreference,
         notifyEmail: user.notifyEmail,
         notifyInApp: user.notifyInApp,
@@ -194,20 +157,24 @@ export default function SettingsPage() {
             <Input
               id="dept"
               value={user.department ?? ""}
-              onChange={(e) =>
-                setUser({ ...user, department: e.target.value })
-              }
+              disabled
+              className="cursor-not-allowed bg-muted/50 text-muted-foreground"
             />
+            <p className="text-xs text-muted-foreground">
+              Managed by an administrator.
+            </p>
           </div>
           <div className="space-y-2">
             <Label htmlFor="pos">Position</Label>
             <Input
               id="pos"
               value={user.position ?? ""}
-              onChange={(e) =>
-                setUser({ ...user, position: e.target.value })
-              }
+              disabled
+              className="cursor-not-allowed bg-muted/50 text-muted-foreground"
             />
+            <p className="text-xs text-muted-foreground">
+              Managed by an administrator.
+            </p>
           </div>
           <div className="space-y-2 md:col-span-2">
             <Label htmlFor="blurp">Team directory intro</Label>
@@ -230,9 +197,8 @@ export default function SettingsPage() {
             <Input
               id="ec"
               value={user.emergencyContact ?? ""}
-              onChange={(e) =>
-                setUser({ ...user, emergencyContact: e.target.value })
-              }
+              disabled
+              className="cursor-not-allowed bg-muted/50 text-muted-foreground"
             />
           </div>
           <div className="space-y-2 md:col-span-2">
@@ -240,10 +206,12 @@ export default function SettingsPage() {
             <Input
               id="ep"
               value={user.emergencyPhone ?? ""}
-              onChange={(e) =>
-                setUser({ ...user, emergencyPhone: e.target.value })
-              }
+              disabled
+              className="cursor-not-allowed bg-muted/50 text-muted-foreground"
             />
+            <p className="text-xs text-muted-foreground">
+              Emergency details are managed by an administrator.
+            </p>
           </div>
         </CardContent>
       </Card>
@@ -255,7 +223,7 @@ export default function SettingsPage() {
         <CardContent className="space-y-4">
           <div className="space-y-3">
             <Label>Profile photo</Label>
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
               <Avatar className="size-20 shrink-0">
                 <AvatarImage
                   key={user.imageUrl ?? "no-avatar"}
@@ -268,61 +236,9 @@ export default function SettingsPage() {
                     : "—"}
                 </AvatarFallback>
               </Avatar>
-              <div className="flex min-w-0 flex-1 flex-col gap-3">
-                <Input
-                  type="file"
-                  accept="image/*"
-                  disabled={photoBusy}
-                  className="cursor-pointer text-sm file:mr-2"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    e.target.value = "";
-                    if (!f) return;
-                    void (async () => {
-                      setPhotoBusy(true);
-                      try {
-                        const url = await uploadProfileImage(f);
-                        const { user: updated } = await persistProfilePhotoUrl(url);
-                        setUser(updated);
-                        toast.success("Profile photo saved");
-                        router.refresh();
-                      } catch (err) {
-                        toast.error(
-                          err instanceof Error ? err.message : "Upload failed",
-                        );
-                      } finally {
-                        setPhotoBusy(false);
-                      }
-                    })();
-                  }}
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="self-start"
-                  disabled={photoBusy || !user.imageUrl}
-                  onClick={() => {
-                    void (async () => {
-                      setPhotoBusy(true);
-                      try {
-                        const { user: updated } = await persistProfilePhotoUrl(null);
-                        setUser(updated);
-                        toast.success("Profile photo removed");
-                        router.refresh();
-                      } catch (err) {
-                        toast.error(
-                          err instanceof Error ? err.message : "Could not remove photo",
-                        );
-                      } finally {
-                        setPhotoBusy(false);
-                      }
-                    })();
-                  }}
-                >
-                  Remove profile photo
-                </Button>
-              </div>
+              <p className="text-sm text-muted-foreground">
+                Your profile photo is managed by an administrator.
+              </p>
             </div>
           </div>
           <Separator />

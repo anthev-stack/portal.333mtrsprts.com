@@ -2,13 +2,15 @@
 
 import { useEffect, useState, startTransition } from "react";
 import { toast } from "sonner";
-import { AccountStatus, Role } from "@prisma/client";
+import { AccountStatus, Role, ThemePreference } from "@prisma/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -33,6 +35,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Switch } from "@/components/ui/switch";
+import { Separator } from "@/components/ui/separator";
 
 type UserRow = {
   id: string;
@@ -45,6 +48,17 @@ type UserRow = {
   imageUrl: string | null;
   accountStatus: AccountStatus;
   canViewTeamStaffContacts: boolean;
+  emergencyContact: string | null;
+  emergencyPhone: string | null;
+  address: string | null;
+  phone: string | null;
+  profileBlurp: string | null;
+  themePreference: ThemePreference;
+  notifyEmail: boolean;
+  notifyInApp: boolean;
+  emailFooter: string;
+  awayModeEnabled: boolean;
+  awayModeTemplate: string | null;
 };
 
 type AuditRow = {
@@ -68,15 +82,20 @@ export default function AdminPage() {
   const [role, setRole] = useState<Role>(Role.STAFF);
   const [newUserImageUrl, setNewUserImageUrl] = useState<string | null>(null);
   const [newUserImageBusy, setNewUserImageBusy] = useState(false);
-  const [photoUser, setPhotoUser] = useState<UserRow | null>(null);
-  const [photoDraftUrl, setPhotoDraftUrl] = useState<string | null>(null);
-  const [photoBusy, setPhotoBusy] = useState(false);
+
+  const [editDraft, setEditDraft] = useState<UserRow | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
+  const [editPhotoBusy, setEditPhotoBusy] = useState(false);
 
   async function uploadProfileImage(file: File) {
     const form = new FormData();
     form.append("file", file);
     form.append("purpose", "profile");
-    const res = await fetch("/api/upload", { method: "POST", body: form });
+    const res = await fetch("/api/upload", {
+      method: "POST",
+      credentials: "include",
+      body: form,
+    });
     if (!res.ok) {
       const err = (await res.json().catch(() => null)) as { error?: string } | null;
       throw new Error(err?.error ?? "Upload failed");
@@ -85,11 +104,12 @@ export default function AdminPage() {
     return data.url;
   }
 
-  async function load() {
+  async function load(): Promise<UserRow[]> {
+    let nextUsers: UserRow[] = [];
     const [meRes, uRes, aRes] = await Promise.all([
       fetch("/api/auth/me", { credentials: "include" }),
-      fetch("/api/admin/users"),
-      fetch("/api/admin/audit?take=30"),
+      fetch("/api/admin/users", { credentials: "include" }),
+      fetch("/api/admin/audit?take=30", { credentials: "include" }),
     ]);
     if (meRes.ok) {
       const data = (await meRes.json()) as { user: { id: string } };
@@ -97,12 +117,14 @@ export default function AdminPage() {
     }
     if (uRes.ok) {
       const data = (await uRes.json()) as { users: UserRow[] };
+      nextUsers = data.users;
       setUsers(data.users);
     }
     if (aRes.ok) {
       const data = (await aRes.json()) as { logs: AuditRow[] };
       setLogs(data.logs);
     }
+    return nextUsers;
   }
 
   useEffect(() => {
@@ -114,6 +136,7 @@ export default function AdminPage() {
   async function createUser() {
     const res = await fetch("/api/admin/users", {
       method: "POST",
+      credentials: "include",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         name,
@@ -142,56 +165,54 @@ export default function AdminPage() {
     await load();
   }
 
-  function openPhotoDialog(u: UserRow) {
-    setPhotoUser(u);
-    setPhotoDraftUrl(u.imageUrl);
-  }
-
-  async function savePhoto() {
-    if (!photoUser) return;
-    setPhotoBusy(true);
+  async function saveEdit() {
+    if (!editDraft) return;
+    setEditSaving(true);
     try {
-      const res = await fetch(`/api/admin/users/${photoUser.id}`, {
+      const res = await fetch(`/api/admin/users/${editDraft.id}`, {
         method: "PATCH",
+        credentials: "include",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          imageUrl: photoDraftUrl?.trim() ? photoDraftUrl.trim() : null,
+          name: editDraft.name.trim(),
+          externalEmail: editDraft.externalEmail.trim().toLowerCase(),
+          role: editDraft.role,
+          department: editDraft.department?.trim() || null,
+          position: editDraft.position?.trim() || null,
+          address: editDraft.address?.trim() || null,
+          phone: editDraft.phone?.trim() || null,
+          emergencyContact: editDraft.emergencyContact?.trim() || null,
+          emergencyPhone: editDraft.emergencyPhone?.trim() || null,
+          profileBlurp: editDraft.profileBlurp?.trim() || null,
+          imageUrl: editDraft.imageUrl,
+          canViewTeamStaffContacts: editDraft.canViewTeamStaffContacts,
+          themePreference: editDraft.themePreference,
+          notifyEmail: editDraft.notifyEmail,
+          notifyInApp: editDraft.notifyInApp,
+          emailFooter: editDraft.emailFooter,
+          awayModeEnabled: editDraft.awayModeEnabled,
+          awayModeTemplate: editDraft.awayModeTemplate?.trim() || null,
         }),
       });
       if (!res.ok) {
-        toast.error("Could not update photo");
+        const body = (await res.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        toast.error(body?.error ?? "Could not save user");
         return;
       }
-      toast.success("Profile photo updated");
-      setPhotoUser(null);
+      toast.success("User updated");
+      setEditDraft(null);
       await load();
     } finally {
-      setPhotoBusy(false);
+      setEditSaving(false);
     }
-  }
-
-  async function setCanViewTeamStaffContacts(id: string, value: boolean) {
-    const res = await fetch(`/api/admin/users/${id}`, {
-      method: "PATCH",
-      credentials: "include",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ canViewTeamStaffContacts: value }),
-    });
-    if (!res.ok) {
-      toast.error("Could not update staff contact access");
-      return;
-    }
-    toast.success(
-      value
-        ? "This user can view phone, address, and emergency details for everyone on Team."
-        : "Team contact details hidden for this user.",
-    );
-    await load();
   }
 
   async function requestReset(id: string) {
     const res = await fetch(`/api/admin/users/${id}/password-reset`, {
       method: "POST",
+      credentials: "include",
     });
     if (!res.ok) {
       toast.error("Could not trigger reset");
@@ -229,362 +250,615 @@ export default function AdminPage() {
     } else {
       toast.success("Account updated");
     }
-    await load();
+    const fresh = await load();
+    setEditDraft((d) => {
+      if (!d) return null;
+      if (action === "delete" && d.id === id) return null;
+      if (d.id === id) return fresh.find((x) => x.id === id) ?? null;
+      return d;
+    });
   }
 
   return (
     <>
-    <div className="space-y-8">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Administration</h1>
-          <p className="text-sm text-muted-foreground">
-            Manage people, permissions, and security events. Pause blocks sign-in without removing data;
-            delete permanently removes an account (no restore).
-          </p>
+      <div className="space-y-8">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">Administration</h1>
+            <p className="text-sm text-muted-foreground">
+              Manage people, permissions, and security events. Pause blocks sign-in without removing data;
+              delete permanently removes an account (no restore).
+            </p>
+          </div>
+          <Button onClick={() => setOpen(true)}>Add user</Button>
         </div>
-        <Button onClick={() => setOpen(true)}>Add user</Button>
-      </div>
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Team directory</CardTitle>
-          <p className="text-xs text-muted-foreground">
-            Use <span className="font-medium text-foreground">View all staff contacts on Team</span>{" "}
-            to let a specific user see everyone&apos;s phone, address, and emergency details on the Team
-            page — not to publish one person&apos;s details to the whole company.
-          </p>
-        </CardHeader>
-        <CardContent className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-14" />
-                <TableHead>Name</TableHead>
-                <TableHead>Internal</TableHead>
-                <TableHead>Role</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="max-w-[9rem] text-center">
-                  <span className="text-xs font-medium leading-tight">
-                    View all staff contacts on Team
-                  </span>
-                </TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {users.map((u) => (
-                <TableRow key={u.id}>
-                  <TableCell>
-                    <Avatar className="size-9">
-                      <AvatarImage src={u.imageUrl ?? undefined} alt="" />
-                      <AvatarFallback className="text-xs">
-                        {u.name.slice(0, 2).toUpperCase()}
-                      </AvatarFallback>
-                    </Avatar>
-                  </TableCell>
-                  <TableCell className="font-medium">{u.name}</TableCell>
-                  <TableCell className="text-xs text-muted-foreground">
-                    {u.internalEmail}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={u.role === "ADMIN" ? "default" : "secondary"}>
-                      {u.role}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    {u.accountStatus === AccountStatus.ACTIVE && (
-                      <Badge variant="outline" className="font-normal">
-                        Active
-                      </Badge>
-                    )}
-                    {u.accountStatus === AccountStatus.PAUSED && (
-                      <Badge variant="secondary">Paused</Badge>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-center">
-                    <div className="flex flex-col items-center gap-1">
-                      <Switch
-                        checked={u.canViewTeamStaffContacts}
-                        disabled={u.accountStatus !== AccountStatus.ACTIVE}
-                        onCheckedChange={(v) =>
-                          void setCanViewTeamStaffContacts(u.id, v === true)
-                        }
-                      />
-                      <span className="text-[10px] text-muted-foreground">
-                        User sees everyone’s details
-                      </span>
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-right space-x-2">
-                    {u.id !== meId && u.accountStatus === AccountStatus.ACTIVE && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => void accountAction(u.id, "pause")}
-                      >
-                        Pause
-                      </Button>
-                    )}
-                    {u.id !== meId && u.accountStatus === AccountStatus.PAUSED && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => void accountAction(u.id, "unpause")}
-                      >
-                        Unpause
-                      </Button>
-                    )}
-                    {u.id !== meId && (
-                      <Button
-                        size="sm"
-                        variant="destructive"
-                        onClick={() => void accountAction(u.id, "delete")}
-                      >
-                        Delete
-                      </Button>
-                    )}
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => openPhotoDialog(u)}
-                    >
-                      Photo
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => void requestReset(u.id)}
-                    >
-                      Email reset
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Audit log</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <ScrollArea className="h-64 pr-3">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Team directory</CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Open <span className="font-medium text-foreground">Edit</span> to change profile, org fields,
+              portal settings for a user, profile photo, Team contact visibility, password reset email, or account status.
+            </p>
+          </CardHeader>
+          <CardContent className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>When</TableHead>
-                  <TableHead>Actor</TableHead>
-                  <TableHead>Action</TableHead>
+                  <TableHead className="w-14" />
+                  <TableHead>Name</TableHead>
+                  <TableHead>Internal</TableHead>
+                  <TableHead>Role</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {logs.map((l) => (
-                  <TableRow key={l.id}>
-                    <TableCell className="whitespace-nowrap text-xs">
-                      {new Date(l.createdAt).toLocaleString()}
+                {users.map((u) => (
+                  <TableRow key={u.id}>
+                    <TableCell>
+                      <Avatar className="size-9">
+                        <AvatarImage src={u.imageUrl ?? undefined} alt="" />
+                        <AvatarFallback className="text-xs">
+                          {u.name.slice(0, 2).toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
                     </TableCell>
-                    <TableCell className="text-xs">{l.actor.name}</TableCell>
-                    <TableCell className="text-xs">
-                      {l.action} · {l.entityType}
-                      {l.entityId ? ` · ${l.entityId}` : ""}
+                    <TableCell className="font-medium">{u.name}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {u.internalEmail}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={u.role === "ADMIN" ? "default" : "secondary"}>
+                        {u.role}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      {u.accountStatus === AccountStatus.ACTIVE && (
+                        <Badge variant="outline" className="font-normal">
+                          Active
+                        </Badge>
+                      )}
+                      {u.accountStatus === AccountStatus.PAUSED && (
+                        <Badge variant="secondary">Paused</Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button size="sm" variant="secondary" onClick={() => setEditDraft({ ...u })}>
+                        Edit
+                      </Button>
                     </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
-          </ScrollArea>
-        </CardContent>
-      </Card>
-    </div>
+          </CardContent>
+        </Card>
 
-    <Dialog
-      open={open}
-      onOpenChange={(v) => {
-        setOpen(v);
-        if (!v) setNewUserImageUrl(null);
-      }}
-    >
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>New staff account</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-3 py-2">
-          <div className="space-y-2">
-            <Label htmlFor="an">Name</Label>
-            <Input id="an" value={name} onChange={(e) => setName(e.target.value)} />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="ai">Internal email</Label>
-            <Input
-              id="ai"
-              type="email"
-              value={internalEmail}
-              onChange={(e) => setInternalEmail(e.target.value)}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="ae">External email</Label>
-            <Input
-              id="ae"
-              type="email"
-              value={externalEmail}
-              onChange={(e) => setExternalEmail(e.target.value)}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="ap">Temporary password (min 12)</Label>
-            <Input
-              id="ap"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label>Role</Label>
-            <Select
-              value={role}
-              onValueChange={(v) => setRole((v ?? Role.STAFF) as Role)}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={Role.STAFF}>Staff</SelectItem>
-                <SelectItem value={Role.ADMIN}>Admin</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-2">
-            <Label>Profile photo</Label>
-            <div className="flex items-center gap-3">
-              <Avatar className="size-12">
-                <AvatarImage src={newUserImageUrl ?? undefined} alt="" />
-                <AvatarFallback className="text-xs">
-                  {name.trim() ? name.slice(0, 2).toUpperCase() : "—"}
-                </AvatarFallback>
-              </Avatar>
-              <div className="flex flex-1 flex-col gap-2">
-                <Input
-                  type="file"
-                  accept="image/*"
-                  disabled={newUserImageBusy}
-                  className="cursor-pointer text-xs file:mr-2"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    e.target.value = "";
-                    if (!f) return;
-                    void (async () => {
-                      setNewUserImageBusy(true);
-                      try {
-                        const url = await uploadProfileImage(f);
-                        setNewUserImageUrl(url);
-                        toast.success("Photo uploaded");
-                      } catch (err) {
-                        toast.error(
-                          err instanceof Error ? err.message : "Upload failed",
-                        );
-                      } finally {
-                        setNewUserImageBusy(false);
-                      }
-                    })();
-                  }}
-                />
-                {newUserImageUrl ? (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 self-start px-2 text-xs"
-                    onClick={() => setNewUserImageUrl(null)}
-                  >
-                    Remove photo
-                  </Button>
-                ) : null}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Audit log</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ScrollArea className="h-64 pr-3">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>When</TableHead>
+                    <TableHead>Actor</TableHead>
+                    <TableHead>Action</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {logs.map((l) => (
+                    <TableRow key={l.id}>
+                      <TableCell className="whitespace-nowrap text-xs">
+                        {new Date(l.createdAt).toLocaleString()}
+                      </TableCell>
+                      <TableCell className="text-xs">{l.actor.name}</TableCell>
+                      <TableCell className="text-xs">
+                        {l.action} · {l.entityType}
+                        {l.entityId ? ` · ${l.entityId}` : ""}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </ScrollArea>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Dialog
+        open={open}
+        onOpenChange={(v) => {
+          setOpen(v);
+          if (!v) setNewUserImageUrl(null);
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>New staff account</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="an">Name</Label>
+              <Input id="an" value={name} onChange={(e) => setName(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="ai">Internal email</Label>
+              <Input
+                id="ai"
+                type="email"
+                value={internalEmail}
+                onChange={(e) => setInternalEmail(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="ae">External email</Label>
+              <Input
+                id="ae"
+                type="email"
+                value={externalEmail}
+                onChange={(e) => setExternalEmail(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="ap">Temporary password (min 12)</Label>
+              <Input
+                id="ap"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Role</Label>
+              <Select
+                value={role}
+                onValueChange={(v) => setRole((v ?? Role.STAFF) as Role)}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={Role.STAFF}>Staff</SelectItem>
+                  <SelectItem value={Role.ADMIN}>Admin</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Profile photo</Label>
+              <div className="flex items-center gap-3">
+                <Avatar className="size-12">
+                  <AvatarImage src={newUserImageUrl ?? undefined} alt="" />
+                  <AvatarFallback className="text-xs">
+                    {name.trim() ? name.slice(0, 2).toUpperCase() : "—"}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="flex flex-1 flex-col gap-2">
+                  <Input
+                    type="file"
+                    accept="image/*"
+                    disabled={newUserImageBusy}
+                    className="cursor-pointer text-xs file:mr-2"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      e.target.value = "";
+                      if (!f) return;
+                      void (async () => {
+                        setNewUserImageBusy(true);
+                        try {
+                          const url = await uploadProfileImage(f);
+                          setNewUserImageUrl(url);
+                          toast.success("Photo uploaded");
+                        } catch (err) {
+                          toast.error(
+                            err instanceof Error ? err.message : "Upload failed",
+                          );
+                        } finally {
+                          setNewUserImageBusy(false);
+                        }
+                      })();
+                    }}
+                  />
+                  {newUserImageUrl ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 self-start px-2 text-xs"
+                      onClick={() => setNewUserImageUrl(null)}
+                    >
+                      Remove photo
+                    </Button>
+                  ) : null}
+                </div>
               </div>
             </div>
           </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setOpen(false)}>
-            Cancel
-          </Button>
-          <Button onClick={() => void createUser()}>Create</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={() => void createUser()}>Create</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-    <Dialog
-      open={!!photoUser}
-      onOpenChange={(o) => {
-        if (!o) setPhotoUser(null);
-      }}
-    >
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>
-            Profile photo{photoUser ? ` — ${photoUser.name}` : ""}
-          </DialogTitle>
-        </DialogHeader>
-        <div className="space-y-4 py-2">
-          <div className="flex justify-center">
-            <Avatar className="size-24">
-              <AvatarImage src={photoDraftUrl ?? undefined} alt="" />
-              <AvatarFallback>
-                {photoUser?.name.slice(0, 2).toUpperCase() ?? "—"}
-              </AvatarFallback>
-            </Avatar>
-          </div>
-          <div className="space-y-2">
-            <Label>Upload image</Label>
-            <Input
-              type="file"
-              accept="image/*"
-              disabled={photoBusy}
-              className="cursor-pointer text-xs file:mr-2"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                e.target.value = "";
-                if (!f) return;
-                void (async () => {
-                  setPhotoBusy(true);
-                  try {
-                    const url = await uploadProfileImage(f);
-                    setPhotoDraftUrl(url);
-                    toast.success("Photo uploaded — save to apply");
-                  } catch (err) {
-                    toast.error(
-                      err instanceof Error ? err.message : "Upload failed",
-                    );
-                  } finally {
-                    setPhotoBusy(false);
-                  }
-                })();
-              }}
-            />
-          </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={photoBusy}
-            onClick={() => setPhotoDraftUrl(null)}
-          >
-            Clear photo
-          </Button>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setPhotoUser(null)}>
-            Cancel
-          </Button>
-          <Button disabled={photoBusy} onClick={() => void savePhoto()}>
-            Save
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      <Dialog
+        open={!!editDraft}
+        onOpenChange={(o) => {
+          if (!o) setEditDraft(null);
+        }}
+      >
+        <DialogContent className="flex max-h-[min(90vh,840px)] max-w-2xl flex-col gap-0 overflow-hidden p-0">
+          <DialogHeader className="shrink-0 space-y-1 border-b px-6 py-4">
+            <DialogTitle>Edit user{editDraft ? ` — ${editDraft.name}` : ""}</DialogTitle>
+            <DialogDescription>
+              Internal email cannot be changed here. Save applies profile, directory fields, and portal preferences.
+            </DialogDescription>
+          </DialogHeader>
+
+          {editDraft ? (
+            <>
+              <ScrollArea className="min-h-0 flex-1">
+                <div className="space-y-6 px-6 py-4">
+                  <div className="space-y-3">
+                    <Label>Profile photo</Label>
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+                      <Avatar className="size-20 shrink-0">
+                        <AvatarImage src={editDraft.imageUrl ?? undefined} alt="" />
+                        <AvatarFallback className="text-lg">
+                          {editDraft.name.slice(0, 2).toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="flex min-w-0 flex-1 flex-col gap-2">
+                        <Input
+                          type="file"
+                          accept="image/*"
+                          disabled={editPhotoBusy || editSaving}
+                          className="cursor-pointer text-sm file:mr-2"
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            e.target.value = "";
+                            if (!f) return;
+                            void (async () => {
+                              setEditPhotoBusy(true);
+                              try {
+                                const url = await uploadProfileImage(f);
+                                setEditDraft((d) => (d ? { ...d, imageUrl: url } : null));
+                                toast.success("Photo uploaded — click Save to apply");
+                              } catch (err) {
+                                toast.error(
+                                  err instanceof Error ? err.message : "Upload failed",
+                                );
+                              } finally {
+                                setEditPhotoBusy(false);
+                              }
+                            })();
+                          }}
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="self-start"
+                          disabled={editPhotoBusy || editSaving || !editDraft.imageUrl}
+                          onClick={() =>
+                            setEditDraft((d) => (d ? { ...d, imageUrl: null } : null))
+                          }
+                        >
+                          Remove photo
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2 sm:col-span-2">
+                      <Label htmlFor="eu-name">Full name</Label>
+                      <Input
+                        id="eu-name"
+                        value={editDraft.name}
+                        onChange={(e) =>
+                          setEditDraft((d) => (d ? { ...d, name: e.target.value } : null))
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2 sm:col-span-2">
+                      <Label>Internal email</Label>
+                      <Input value={editDraft.internalEmail} disabled />
+                    </div>
+                    <div className="space-y-2 sm:col-span-2">
+                      <Label htmlFor="eu-ext">External email</Label>
+                      <Input
+                        id="eu-ext"
+                        type="email"
+                        value={editDraft.externalEmail}
+                        onChange={(e) =>
+                          setEditDraft((d) =>
+                            d ? { ...d, externalEmail: e.target.value } : null,
+                          )
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Role</Label>
+                      <Select
+                        value={editDraft.role}
+                        onValueChange={(v) =>
+                          setEditDraft((d) =>
+                            d ? { ...d, role: (v ?? Role.STAFF) as Role } : null,
+                          )
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={Role.STAFF}>Staff</SelectItem>
+                          <SelectItem value={Role.ADMIN}>Admin</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="eu-dept">Department</Label>
+                      <Input
+                        id="eu-dept"
+                        value={editDraft.department ?? ""}
+                        onChange={(e) =>
+                          setEditDraft((d) =>
+                            d ? { ...d, department: e.target.value || null } : null,
+                          )
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="eu-pos">Position</Label>
+                      <Input
+                        id="eu-pos"
+                        value={editDraft.position ?? ""}
+                        onChange={(e) =>
+                          setEditDraft((d) =>
+                            d ? { ...d, position: e.target.value || null } : null,
+                          )
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2 sm:col-span-2">
+                      <Label htmlFor="eu-addr">Address</Label>
+                      <Input
+                        id="eu-addr"
+                        value={editDraft.address ?? ""}
+                        onChange={(e) =>
+                          setEditDraft((d) =>
+                            d ? { ...d, address: e.target.value || null } : null,
+                          )
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="eu-phone">Phone</Label>
+                      <Input
+                        id="eu-phone"
+                        value={editDraft.phone ?? ""}
+                        onChange={(e) =>
+                          setEditDraft((d) =>
+                            d ? { ...d, phone: e.target.value || null } : null,
+                          )
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2 sm:col-span-2">
+                      <Label htmlFor="eu-ec">Emergency contact</Label>
+                      <Input
+                        id="eu-ec"
+                        value={editDraft.emergencyContact ?? ""}
+                        onChange={(e) =>
+                          setEditDraft((d) =>
+                            d ? { ...d, emergencyContact: e.target.value || null } : null,
+                          )
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2 sm:col-span-2">
+                      <Label htmlFor="eu-ep">Emergency phone</Label>
+                      <Input
+                        id="eu-ep"
+                        value={editDraft.emergencyPhone ?? ""}
+                        onChange={(e) =>
+                          setEditDraft((d) =>
+                            d ? { ...d, emergencyPhone: e.target.value || null } : null,
+                          )
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2 sm:col-span-2">
+                      <Label htmlFor="eu-blurp">Team directory intro</Label>
+                      <Textarea
+                        id="eu-blurp"
+                        rows={3}
+                        maxLength={600}
+                        value={editDraft.profileBlurp ?? ""}
+                        onChange={(e) =>
+                          setEditDraft((d) =>
+                            d ? { ...d, profileBlurp: e.target.value || null } : null,
+                          )
+                        }
+                      />
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  <div className="flex items-center justify-between rounded-lg border px-3 py-2">
+                    <div className="pr-3">
+                      <p className="text-sm font-medium">View all staff contacts on Team</p>
+                      <p className="text-xs text-muted-foreground">
+                        User sees everyone&apos;s phone, address, and emergency details on Team.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={editDraft.canViewTeamStaffContacts}
+                      disabled={editDraft.accountStatus !== AccountStatus.ACTIVE}
+                      onCheckedChange={(v) =>
+                        setEditDraft((d) =>
+                          d ? { ...d, canViewTeamStaffContacts: v === true } : null,
+                        )
+                      }
+                    />
+                  </div>
+
+                  <Separator />
+
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2 sm:col-span-2">
+                      <Label>Theme</Label>
+                      <Select
+                        value={editDraft.themePreference}
+                        onValueChange={(v) =>
+                          setEditDraft((d) =>
+                            d
+                              ? {
+                                  ...d,
+                                  themePreference: (v ??
+                                    ThemePreference.SYSTEM) as ThemePreference,
+                                }
+                              : null,
+                          )
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={ThemePreference.SYSTEM}>System</SelectItem>
+                          <SelectItem value={ThemePreference.LIGHT}>Light</SelectItem>
+                          <SelectItem value={ThemePreference.DARK}>Dark</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="flex items-center justify-between rounded-lg border px-3 py-2 sm:col-span-2">
+                      <span className="text-sm font-medium">Email notifications</span>
+                      <Switch
+                        checked={editDraft.notifyEmail}
+                        onCheckedChange={(v) =>
+                          setEditDraft((d) => (d ? { ...d, notifyEmail: v } : null))
+                        }
+                      />
+                    </div>
+                    <div className="flex items-center justify-between rounded-lg border px-3 py-2 sm:col-span-2">
+                      <span className="text-sm font-medium">In-app notifications</span>
+                      <Switch
+                        checked={editDraft.notifyInApp}
+                        onCheckedChange={(v) =>
+                          setEditDraft((d) => (d ? { ...d, notifyInApp: v } : null))
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2 sm:col-span-2">
+                      <Label htmlFor="eu-footer">Default email footer</Label>
+                      <Textarea
+                        id="eu-footer"
+                        rows={4}
+                        value={editDraft.emailFooter}
+                        onChange={(e) =>
+                          setEditDraft((d) =>
+                            d ? { ...d, emailFooter: e.target.value } : null,
+                          )
+                        }
+                      />
+                    </div>
+                    <div className="flex items-center justify-between rounded-lg border px-3 py-2 sm:col-span-2">
+                      <span className="text-sm font-medium">Away mode</span>
+                      <Switch
+                        checked={editDraft.awayModeEnabled}
+                        onCheckedChange={(v) =>
+                          setEditDraft((d) =>
+                            d ? { ...d, awayModeEnabled: v } : null,
+                          )
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2 sm:col-span-2">
+                      <Label htmlFor="eu-away">Away mode template</Label>
+                      <Textarea
+                        id="eu-away"
+                        rows={4}
+                        value={editDraft.awayModeTemplate ?? ""}
+                        onChange={(e) =>
+                          setEditDraft((d) =>
+                            d ? { ...d, awayModeTemplate: e.target.value || null } : null,
+                          )
+                        }
+                      />
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  <div className="space-y-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+                    <p className="text-sm font-medium text-destructive">Account & security</p>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void requestReset(editDraft.id)}
+                      >
+                        Email password reset
+                      </Button>
+                      {editDraft.id !== meId &&
+                        editDraft.accountStatus === AccountStatus.ACTIVE && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => void accountAction(editDraft.id, "pause")}
+                          >
+                            Pause account
+                          </Button>
+                        )}
+                      {editDraft.id !== meId &&
+                        editDraft.accountStatus === AccountStatus.PAUSED && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => void accountAction(editDraft.id, "unpause")}
+                          >
+                            Unpause account
+                          </Button>
+                        )}
+                      {editDraft.id !== meId && (
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          size="sm"
+                          onClick={() => void accountAction(editDraft.id, "delete")}
+                        >
+                          Delete account
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </ScrollArea>
+
+              <DialogFooter className="shrink-0 gap-2 border-t px-6 py-4 sm:justify-end">
+                <Button variant="outline" onClick={() => setEditDraft(null)}>
+                  Cancel
+                </Button>
+                <Button disabled={editSaving || editPhotoBusy} onClick={() => void saveEdit()}>
+                  Save changes
+                </Button>
+              </DialogFooter>
+            </>
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

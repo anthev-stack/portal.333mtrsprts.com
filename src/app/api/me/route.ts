@@ -10,12 +10,7 @@ const patchSchema = z.object({
   externalEmail: z.string().email().optional(),
   address: z.string().nullable().optional(),
   phone: z.string().nullable().optional(),
-  emergencyContact: z.string().nullable().optional(),
-  emergencyPhone: z.string().nullable().optional(),
-  position: z.string().nullable().optional(),
-  department: z.string().nullable().optional(),
   profileBlurp: z.string().max(600).nullable().optional(),
-  imageUrl: z.string().max(2000).nullable().optional(),
   themePreference: z.nativeEnum(ThemePreference).optional(),
   notifyEmail: z.boolean().optional(),
   notifyInApp: z.boolean().optional(),
@@ -71,16 +66,7 @@ export async function PATCH(request: Request) {
   if (data.externalEmail !== undefined) update.externalEmail = data.externalEmail;
   if (data.address !== undefined) update.address = data.address;
   if (data.phone !== undefined) update.phone = data.phone;
-  if (data.emergencyContact !== undefined) {
-    update.emergencyContact = data.emergencyContact;
-  }
-  if (data.emergencyPhone !== undefined) {
-    update.emergencyPhone = data.emergencyPhone;
-  }
-  if (data.position !== undefined) update.position = data.position;
-  if (data.department !== undefined) update.department = data.department;
   if (data.profileBlurp !== undefined) update.profileBlurp = data.profileBlurp;
-  if (data.imageUrl !== undefined) update.imageUrl = data.imageUrl;
   if (data.themePreference !== undefined) {
     update.themePreference = data.themePreference;
   }

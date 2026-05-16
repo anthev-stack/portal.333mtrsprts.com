@@ -30,6 +30,17 @@ export async function GET() {
       accountStatus: true,
       canViewTeamStaffContacts: true,
       teamDirectorySortOrder: true,
+      address: true,
+      phone: true,
+      emergencyContact: true,
+      emergencyPhone: true,
+      profileBlurp: true,
+      themePreference: true,
+      notifyEmail: true,
+      notifyInApp: true,
+      emailFooter: true,
+      awayModeEnabled: true,
+      awayModeTemplate: true,
     },
   });
 
