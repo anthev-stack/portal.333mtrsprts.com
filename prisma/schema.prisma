@@ -56,6 +56,12 @@ enum JobAssignmentStatus {
   WAIVED
 }
 
+enum ScheduledJobFrequency {
+  WEEKLY
+  FORTNIGHTLY
+  MONTHLY
+}
+
 model User {
   id               String            @id @default(cuid())
   internalEmail    String            @unique
@@ -110,6 +116,8 @@ model User {
   passwordResetTokens PasswordResetToken[]
   jobsCreated        Job[]                      @relation("JobsCreated")
   jobAssignments     JobAssignment[]
+  scheduledJobsCreated ScheduledJob[]         @relation("ScheduledJobsCreated")
+  scheduledJobAssignees ScheduledJobAssignee[]
   mailLabels         MailLabel[]
   customerCareCreated CustomerCareRequest[] @relation("CustomerCareCreator")
   customerCareAssignments CustomerCareAssignment[]
@@ -309,11 +317,49 @@ model Job {
   adminRejectionReason String? @db.Text
   /** Self-created reminder; omitted from org progress aggregate and sidebar job counts. */
   isReminder       Boolean           @default(false)
+  /** Set when this job was spawned from a recurring schedule. */
+  scheduledJobId   String?
+  scheduledJob     ScheduledJob?     @relation(fields: [scheduledJobId], references: [id], onDelete: SetNull)
   createdById      String
   createdBy        User              @relation("JobsCreated", fields: [createdById], references: [id], onDelete: Cascade)
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
   assignments      JobAssignment[]
+
+  @@index([scheduledJobId])
+}
+
+/// Admin-defined recurring job template; materializes a Job on each due date.
+model ScheduledJob {
+  id               String                @id @default(cuid())
+  title            String
+  instructions     String                @db.Text
+  assignToEveryone Boolean               @default(false)
+  frequency        ScheduledJobFrequency
+  /// 0=Sunday … 6=Saturday (UTC), for WEEKLY and FORTNIGHTLY.
+  dayOfWeek        Int?
+  /// 1–31 (UTC), for MONTHLY.
+  dayOfMonth       Int?
+  isActive         Boolean               @default(true)
+  nextRunAt        DateTime
+  lastRunAt        DateTime?
+  createdById      String
+  createdBy        User                  @relation("ScheduledJobsCreated", fields: [createdById], references: [id], onDelete: Cascade)
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+  assignees        ScheduledJobAssignee[]
+  spawnedJobs      Job[]
+
+  @@index([isActive, nextRunAt])
+}
+
+model ScheduledJobAssignee {
+  scheduledJobId String
+  scheduledJob   ScheduledJob @relation(fields: [scheduledJobId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([scheduledJobId, userId])
 }
 
 model JobAssignment {

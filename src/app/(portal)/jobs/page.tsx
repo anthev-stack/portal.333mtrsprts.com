@@ -26,7 +26,15 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { DAY_OF_WEEK_LABELS } from "@/lib/scheduled-job-format";
 import {
   progressFromAssignments,
   type JobAssignmentStatusStr,
@@ -60,6 +68,26 @@ type Job = {
   assignments: Assignment[];
   progress: JobProgressStats;
 };
+
+type ScheduledJobFrequency = "WEEKLY" | "FORTNIGHTLY" | "MONTHLY";
+
+type ScheduledJobRow = {
+  id: string;
+  title: string;
+  instructions: string;
+  assignToEveryone: boolean;
+  frequency: ScheduledJobFrequency;
+  dayOfWeek: number | null;
+  dayOfMonth: number | null;
+  isActive: boolean;
+  nextRunAt: string;
+  lastRunAt: string | null;
+  summary: string;
+  createdBy: { id: string; name: string; internalEmail: string };
+  assignees: { user: StaffUser }[];
+};
+
+const MONTH_DAY_OPTIONS = Array.from({ length: 31 }, (_, i) => i + 1);
 
 async function refreshJobsOpenCount() {
   const res = await fetch("/api/jobs/open-count", { credentials: "include" });
@@ -316,8 +344,20 @@ export default function JobsPage() {
   const [staffUsers, setStaffUsers] = useState<StaffUser[]>([]);
   const [initializing, setInitializing] = useState(true);
   const [jobsLoading, setJobsLoading] = useState(false);
-  const [scope, setScope] = useState<"active" | "archived">("active");
+  const [scope, setScope] = useState<"active" | "archived" | "scheduled">("active");
   const [detail, setDetail] = useState<Job | null>(null);
+
+  const [scheduledJobs, setScheduledJobs] = useState<ScheduledJobRow[]>([]);
+  const [scheduledLoading, setScheduledLoading] = useState(false);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scheduleTitle, setScheduleTitle] = useState("");
+  const [scheduleInstructions, setScheduleInstructions] = useState("");
+  const [scheduleEveryone, setScheduleEveryone] = useState(true);
+  const [scheduleSelectedIds, setScheduleSelectedIds] = useState<Set<string>>(new Set());
+  const [scheduleFrequency, setScheduleFrequency] = useState<ScheduledJobFrequency>("WEEKLY");
+  const [scheduleDayOfWeek, setScheduleDayOfWeek] = useState("1");
+  const [scheduleDayOfMonth, setScheduleDayOfMonth] = useState("1");
+  const [deleteScheduleTarget, setDeleteScheduleTarget] = useState<ScheduledJobRow | null>(null);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [createTitle, setCreateTitle] = useState("");
@@ -408,6 +448,21 @@ export default function JobsPage() {
     }
   }, []);
 
+  const loadScheduled = useCallback(async () => {
+    setScheduledLoading(true);
+    try {
+      const res = await fetch("/api/jobs/scheduled", { credentials: "include" });
+      if (!res.ok) {
+        toast.error(await parseApiError(res, "Could not load scheduled jobs"));
+        return;
+      }
+      const data = (await res.json()) as { schedules: ScheduledJobRow[] };
+      setScheduledJobs(data.schedules);
+    } finally {
+      setScheduledLoading(false);
+    }
+  }, []);
+
   const loadStaff = useCallback(async () => {
     const res = await fetch("/api/staff", { credentials: "include" });
     if (!res.ok) return;
@@ -431,8 +486,12 @@ export default function JobsPage() {
 
   useEffect(() => {
     if (!me) return;
+    if (scope === "scheduled") {
+      if (me.role === "ADMIN") void loadScheduled();
+      return;
+    }
     void loadJobs(scope);
-  }, [me, scope, loadJobs]);
+  }, [me, scope, loadJobs, loadScheduled]);
 
   useEffect(() => {
     if (!me) return;
@@ -565,6 +624,97 @@ export default function JobsPage() {
     setRejectNote("");
     toast.success("Job sent back to the team");
     void refreshJobsOpenCount();
+  }
+
+  function formatScheduleDate(iso: string): string {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "";
+    return d.toLocaleDateString(undefined, {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+  }
+
+  async function submitSchedule() {
+    if (!scheduleTitle.trim()) {
+      toast.error("Title is required");
+      return;
+    }
+    if (!scheduleInstructions.trim()) {
+      toast.error("Instructions are required");
+      return;
+    }
+    const assigneeUserIds = [...scheduleSelectedIds];
+    if (!scheduleEveryone && assigneeUserIds.length === 0) {
+      toast.error("Select at least one person, or assign to everyone");
+      return;
+    }
+    const body: Record<string, unknown> = {
+      title: scheduleTitle.trim(),
+      instructions: scheduleInstructions.trim(),
+      assignToEveryone: scheduleEveryone,
+      frequency: scheduleFrequency,
+      ...(scheduleEveryone ? {} : { assigneeUserIds }),
+    };
+    if (scheduleFrequency === "MONTHLY") {
+      body.dayOfMonth = Number(scheduleDayOfMonth);
+    } else {
+      body.dayOfWeek = Number(scheduleDayOfWeek);
+    }
+    const res = await fetch("/api/jobs/scheduled", {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      toast.error(await parseApiError(res, "Could not create schedule"));
+      return;
+    }
+    setScheduleOpen(false);
+    setScheduleTitle("");
+    setScheduleInstructions("");
+    setScheduleEveryone(true);
+    setScheduleSelectedIds(new Set());
+    setScheduleFrequency("WEEKLY");
+    setScheduleDayOfWeek("1");
+    setScheduleDayOfMonth("1");
+    toast.success("Recurring job scheduled");
+    setScope("scheduled");
+    await loadScheduled();
+  }
+
+  async function toggleScheduleActive(row: ScheduledJobRow) {
+    const res = await fetch(`/api/jobs/scheduled/${row.id}`, {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ isActive: !row.isActive }),
+    });
+    if (!res.ok) {
+      toast.error(await parseApiError(res, "Could not update schedule"));
+      return;
+    }
+    const data = (await res.json()) as { schedule: ScheduledJobRow };
+    setScheduledJobs((prev) => prev.map((s) => (s.id === data.schedule.id ? data.schedule : s)));
+    toast.success(data.schedule.isActive ? "Schedule resumed" : "Schedule paused");
+  }
+
+  async function confirmDeleteSchedule() {
+    if (!deleteScheduleTarget) return;
+    const res = await fetch(`/api/jobs/scheduled/${deleteScheduleTarget.id}`, {
+      method: "DELETE",
+      credentials: "include",
+    });
+    if (!res.ok) {
+      toast.error(await parseApiError(res, "Could not delete schedule"));
+      return;
+    }
+    setScheduledJobs((prev) => prev.filter((s) => s.id !== deleteScheduleTarget.id));
+    setDeleteScheduleTarget(null);
+    toast.success("Schedule deleted");
   }
 
   async function submitCreate() {
@@ -708,14 +858,25 @@ export default function JobsPage() {
         {(isAdmin || me.role === "STAFF") && (
           <div className="flex flex-wrap gap-2">
             {isAdmin && (
-              <Button
-                onClick={() => {
-                  setCreateOpen(true);
-                  void loadStaff();
-                }}
-              >
-                Create job
-              </Button>
+              <>
+                <Button
+                  onClick={() => {
+                    setCreateOpen(true);
+                    void loadStaff();
+                  }}
+                >
+                  Create job
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setScheduleOpen(true);
+                    void loadStaff();
+                  }}
+                >
+                  Schedule job
+                </Button>
+              </>
             )}
             <Button type="button" variant="outline" onClick={() => setReminderOpen(true)}>
               Create reminder
@@ -732,7 +893,75 @@ export default function JobsPage() {
         <TabsList>
           <TabsTrigger value="active">Active</TabsTrigger>
           <TabsTrigger value="archived">Completed</TabsTrigger>
+          {isAdmin && <TabsTrigger value="scheduled">Scheduled</TabsTrigger>}
         </TabsList>
+        {scope === "scheduled" && isAdmin && (
+          <TabsContent value="scheduled" className="mt-4 space-y-6 outline-none">
+            {scheduledLoading && (
+              <p className="text-sm text-muted-foreground">Loading schedules…</p>
+            )}
+            <p className="text-sm text-muted-foreground">
+              Recurring jobs are created automatically on their due date and appear under Active
+              like any other job.
+            </p>
+            {scheduledJobs.length === 0 && !scheduledLoading ? (
+              <Card className="shadow-sm">
+                <CardContent className="py-8 text-center text-sm text-muted-foreground">
+                  No scheduled jobs yet. Use Schedule job to add weekly, fortnightly, or monthly
+                  tasks.
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="grid gap-4 md:grid-cols-2">
+                {scheduledJobs.map((row) => (
+                  <Card key={row.id} className={cn("shadow-sm", !row.isActive && "opacity-70")}>
+                    <CardHeader className="space-y-2">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <CardTitle className="min-w-0 flex-1 text-base leading-snug">
+                          {row.title}
+                        </CardTitle>
+                        <Badge variant={row.isActive ? "default" : "secondary"}>
+                          {row.isActive ? "Active" : "Paused"}
+                        </Badge>
+                      </div>
+                      <CardDescription className="text-xs">
+                        {row.summary}
+                        {row.assignToEveryone
+                          ? " · Everyone"
+                          : ` · ${row.assignees.length} staff`}
+                      </CardDescription>
+                      <p className="text-xs text-muted-foreground">
+                        Next: {formatScheduleDate(row.nextRunAt)}
+                        {row.lastRunAt
+                          ? ` · Last run: ${formatScheduleDate(row.lastRunAt)}`
+                          : ""}
+                      </p>
+                    </CardHeader>
+                    <CardContent className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void toggleScheduleActive(row)}
+                      >
+                        {row.isActive ? "Pause" : "Resume"}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        size="sm"
+                        onClick={() => setDeleteScheduleTarget(row)}
+                      >
+                        Delete
+                      </Button>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </TabsContent>
+        )}
+        {scope !== "scheduled" && (
         <TabsContent value={scope} className="mt-4 space-y-6 outline-none">
           {jobsLoading && (
             <p className="text-sm text-muted-foreground">Updating job list…</p>
@@ -906,6 +1135,7 @@ export default function JobsPage() {
             </Card>
           )}
         </TabsContent>
+        )}
       </Tabs>
 
       <Dialog
@@ -1257,6 +1487,143 @@ export default function JobsPage() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={scheduleOpen} onOpenChange={setScheduleOpen}>
+        <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto" showCloseButton>
+          <DialogHeader>
+            <DialogTitle>Schedule recurring job</DialogTitle>
+            <DialogDescription>
+              Creates a real job on each due date (weekly, every two weeks, or monthly). Times use UTC
+              midnight — pick the weekday or calendar day that matches your intent.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="sched-title">Title</Label>
+              <Input
+                id="sched-title"
+                value={scheduleTitle}
+                onChange={(e) => setScheduleTitle(e.target.value)}
+                placeholder="e.g. Clean showroom floor"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="sched-inst">Instructions</Label>
+              <Textarea
+                id="sched-inst"
+                value={scheduleInstructions}
+                onChange={(e) => setScheduleInstructions(e.target.value)}
+                rows={6}
+                placeholder="What needs to be done each time?"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="sched-frequency">Repeat</Label>
+              <Select
+                value={scheduleFrequency}
+                onValueChange={(v) => setScheduleFrequency(v as ScheduledJobFrequency)}
+              >
+                <SelectTrigger id="sched-frequency">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="WEEKLY">Weekly</SelectItem>
+                  <SelectItem value="FORTNIGHTLY">Every 2 weeks (fortnightly)</SelectItem>
+                  <SelectItem value="MONTHLY">Monthly</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {scheduleFrequency === "MONTHLY" ? (
+              <div className="space-y-2">
+                <Label htmlFor="sched-dom">Day of month</Label>
+                <Select
+                  value={scheduleDayOfMonth}
+                  onValueChange={(v) => v != null && setScheduleDayOfMonth(v)}
+                >
+                  <SelectTrigger id="sched-dom">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {MONTH_DAY_OPTIONS.map((d) => (
+                      <SelectItem key={d} value={String(d)}>
+                        Day {d}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Shorter months use the last day (e.g. day 31 in February runs on the 28th or 29th).
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label htmlFor="sched-dow">Day of week</Label>
+                <Select
+                  value={scheduleDayOfWeek}
+                  onValueChange={(v) => v != null && setScheduleDayOfWeek(v)}
+                >
+                  <SelectTrigger id="sched-dow">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {DAY_OF_WEEK_LABELS.map((label, i) => (
+                      <SelectItem key={label} value={String(i)}>
+                        {label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            <div className="flex items-center justify-between gap-4 rounded-lg border px-3 py-2">
+              <div>
+                <p className="text-sm font-medium">Assign to everyone</p>
+                <p className="text-xs text-muted-foreground">All portal users get each created job.</p>
+              </div>
+              <Switch checked={scheduleEveryone} onCheckedChange={setScheduleEveryone} />
+            </div>
+            {!scheduleEveryone && (
+              <div className="space-y-2">
+                <Label>Staff members</Label>
+                <ScrollArea className="h-48 rounded-md border p-2">
+                  <div className="space-y-2 pr-2">
+                    {staffUsers.map((u) => (
+                      <label
+                        key={u.id}
+                        className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 hover:bg-accent/50"
+                      >
+                        <Checkbox
+                          checked={scheduleSelectedIds.has(u.id)}
+                          onCheckedChange={(c) => {
+                            setScheduleSelectedIds((prev) => {
+                              const next = new Set(prev);
+                              if (c === true) next.add(u.id);
+                              else next.delete(u.id);
+                              return next;
+                            });
+                          }}
+                        />
+                        <span className="text-sm">
+                          {u.name}{" "}
+                          <span className="text-muted-foreground">({u.internalEmail})</span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </ScrollArea>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setScheduleOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={() => void submitSchedule()}>
+              Save schedule
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={reminderOpen} onOpenChange={setReminderOpen}>
         <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto" showCloseButton>
           <DialogHeader>
@@ -1453,6 +1820,30 @@ export default function JobsPage() {
               }}
             >
               Send back to team
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!deleteScheduleTarget}
+        onOpenChange={(o) => !o && setDeleteScheduleTarget(null)}
+      >
+        <DialogContent showCloseButton>
+          <DialogHeader>
+            <DialogTitle>Delete scheduled job?</DialogTitle>
+            <DialogDescription>
+              {deleteScheduleTarget
+                ? `“${deleteScheduleTarget.title}” will stop repeating. Jobs already created stay on the Active tab.`
+                : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setDeleteScheduleTarget(null)}>
+              Cancel
+            </Button>
+            <Button type="button" variant="destructive" onClick={() => void confirmDeleteSchedule()}>
+              Delete schedule
             </Button>
           </DialogFooter>
         </DialogContent>

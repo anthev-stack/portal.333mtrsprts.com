@@ -1,7 +1,8 @@
-import type { Metadata } from "next";
 import { Cormorant, Roboto, Roboto_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/providers";
+import { SiteJsonLd } from "@/components/site-json-ld";
+import { buildSiteMetadata } from "@/lib/site-metadata";
 
 const cormorant = Cormorant({
   subsets: ["latin"],
@@ -23,10 +24,7 @@ const robotoMono = Roboto_Mono({
   display: "swap",
 });
 
-export const metadata: Metadata = {
-  title: "333 Motorsport Staff Portal",
-  description: "Internal staff portal for 333 Motorsport",
-};
+export const metadata = buildSiteMetadata();
 
 export default function RootLayout({
   children,
@@ -40,6 +38,7 @@ export default function RootLayout({
       className={`${cormorant.variable} ${roboto.variable} ${robotoMono.variable} h-full font-sans antialiased`}
     >
       <body className="min-h-dvh font-sans">
+        <SiteJsonLd />
         <Providers>{children}</Providers>
       </body>
     </html>

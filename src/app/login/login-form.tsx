@@ -66,28 +66,26 @@ export function LoginForm() {
         transition={{ duration: 0.35, ease: "easeOut" }}
         className="w-full max-w-md"
       >
-        <div className="mb-8 flex w-full flex-col items-center gap-4">
-          <div className="relative mx-auto h-20 w-full max-w-[220px] shrink-0">
+        <div className="mb-8 flex w-full flex-col items-center gap-4 text-center">
+          <div className="flex h-20 w-full items-center justify-center">
             <img
               src="/images/logo-black.png"
-              alt=""
-              className="absolute inset-0 m-auto max-h-20 w-auto max-w-full object-contain dark:hidden"
+              alt="333"
+              className="max-h-20 w-auto max-w-[220px] object-contain dark:hidden"
               width={220}
               height={80}
             />
             <img
               src="/images/logo-white.png"
-              alt=""
-              className="absolute inset-0 m-auto hidden max-h-20 w-auto max-w-full object-contain dark:block"
+              alt="333"
+              className="hidden max-h-20 w-auto max-w-[220px] object-contain dark:block"
               width={220}
               height={80}
             />
           </div>
-          <div className="flex w-full justify-center px-2">
-            <p className="m-0 w-fit max-w-full text-center text-5xl font-semibold leading-none tracking-tight sm:text-6xl md:text-7xl">
-              MOTORSPORTS
-            </p>
-          </div>
+          <p className="w-full font-heading text-5xl font-semibold leading-none tracking-normal sm:text-6xl md:text-7xl">
+            MOTORSPORTS
+          </p>
         </div>
         <Card className="border-border/80 shadow-lg shadow-black/5">
           <CardHeader className="items-center space-y-2 text-center">

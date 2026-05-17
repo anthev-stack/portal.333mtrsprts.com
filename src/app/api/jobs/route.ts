@@ -7,15 +7,12 @@ import {
   progressFromAssignments,
   type JobAssignmentStatusStr,
 } from "@/lib/jobs-stats";
-
-const jobInclude = {
-  createdBy: { select: { id: true, name: true, internalEmail: true } },
-  assignments: {
-    include: {
-      user: { select: { id: true, name: true, internalEmail: true, role: true } },
-    },
-  },
-} as const;
+import {
+  createJobWithAssignments,
+  jobInclude,
+  resolveJobAssigneeUserIds,
+} from "@/lib/create-job";
+import { processDueScheduledJobs } from "@/lib/scheduled-jobs";
 
 function serializeJob<T extends { assignments: { status: string }[]; isReminder?: boolean }>(job: T) {
   const progress = progressFromAssignments(
@@ -31,6 +28,14 @@ export async function GET(request: Request) {
   const session = await getSession();
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  if (session.role === "ADMIN") {
+    try {
+      await processDueScheduledJobs();
+    } catch (e) {
+      console.error("[GET /api/jobs] processDueScheduledJobs failed:", e);
+    }
   }
 
   const { searchParams } = new URL(request.url);
@@ -120,77 +125,24 @@ export async function POST(request: Request) {
     assignToEveryone = false;
   } else {
     assignToEveryone = parsed.data.assignToEveryone!;
-    if (assignToEveryone) {
-      const all = await prisma.user.findMany({ select: { id: true } });
-      userIds = all.map((u) => u.id);
-      if (userIds.length === 0) {
-        return NextResponse.json({ error: "No users to assign" }, { status: 400 });
-      }
-    } else {
-      const ids = [...new Set(parsed.data.assigneeUserIds ?? [])];
-      if (ids.length === 0) {
-        return NextResponse.json(
-          { error: "Pick at least one staff member, or assign to everyone" },
-          { status: 400 },
-        );
-      }
-      const found = await prisma.user.findMany({
-        where: { id: { in: ids } },
-        select: { id: true },
-      });
-      if (found.length !== ids.length) {
-        return NextResponse.json({ error: "One or more users not found" }, { status: 400 });
-      }
-      userIds = ids;
+    const resolved = await resolveJobAssigneeUserIds(
+      assignToEveryone,
+      parsed.data.assigneeUserIds,
+    );
+    if ("error" in resolved) {
+      return NextResponse.json({ error: resolved.error }, { status: resolved.status });
     }
+    userIds = resolved.userIds;
   }
 
-  const isReminder = selfReminder === true;
-
-  const job = await prisma.$transaction(async (tx) => {
-    const j = await tx.job.create({
-      data: {
-        title: title.trim(),
-        instructions,
-        assignToEveryone,
-        createdById: session.id,
-        isReminder,
-      },
-    });
-    await tx.jobAssignment.createMany({
-      data: userIds.map((userId) => ({
-        jobId: j.id,
-        userId,
-      })),
-    });
-    return tx.job.findUniqueOrThrow({
-      where: { id: j.id },
-      include: jobInclude,
-    });
+  const job = await createJobWithAssignments({
+    createdById: session.id,
+    title,
+    instructions,
+    assignToEveryone,
+    userIds,
+    isReminder: selfReminder === true,
   });
 
-  try {
-    await notifyJobAssignments(job.title, userIds, isReminder);
-  } catch (e) {
-    console.error("[POST /api/jobs] notification createMany failed:", e);
-  }
-
   return NextResponse.json({ job: serializeJob(job) });
-}
-
-async function notifyJobAssignments(
-  jobTitle: string,
-  assigneeUserIds: string[],
-  isReminder: boolean,
-) {
-  if (isReminder) return;
-  const rows = assigneeUserIds.map((userId) => ({
-    userId,
-    type: "job_assigned",
-    title: "You've been assigned a job.",
-    body: jobTitle,
-    link: "/jobs",
-  }));
-  if (rows.length === 0) return;
-  await prisma.notification.createMany({ data: rows });
 }
