@@ -10,6 +10,7 @@ export type PortalSidebarCountsPayload = {
   home: number;
   knowledgebase: number;
   customerCare: number;
+  productSuggestions: number;
 };
 
 export async function getPortalSidebarCountsForUser(session: {
@@ -21,7 +22,7 @@ export async function getPortalSidebarCountsForUser(session: {
     select: { lastSeenHomeFeedAt: true, lastSeenKnowledgebaseAt: true },
   });
   if (!user) {
-    return { mail: 0, jobs: 0, home: 0, knowledgebase: 0, customerCare: 0 };
+    return { mail: 0, jobs: 0, home: 0, knowledgebase: 0, customerCare: 0, productSuggestions: 0 };
   }
 
   const [
@@ -31,6 +32,7 @@ export async function getPortalSidebarCountsForUser(session: {
     homeComments,
     knowledgebase,
     customerCare,
+    productSuggestions,
   ] = await Promise.all([
     countInboxUnreadForUser(session),
     prisma.jobAssignment.count({
@@ -65,6 +67,9 @@ export async function getPortalSidebarCountsForUser(session: {
         assignments: { some: { userId: session.id } },
       },
     }),
+    prisma.productSuggestion.count({
+      where: { status: "NEW" },
+    }),
   ]);
 
   return {
@@ -73,5 +78,6 @@ export async function getPortalSidebarCountsForUser(session: {
     home: homePosts + homeComments,
     knowledgebase,
     customerCare,
+    productSuggestions,
   };
 }

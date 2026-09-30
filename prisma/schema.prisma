@@ -484,3 +484,32 @@ model CustomerCareAssignment {
   @@unique([requestId, userId])
   @@index([userId])
 }
+
+enum ProductSuggestionStatus {
+  NEW
+  REVIEWING
+  CONTACTED
+  ARCHIVED
+}
+
+model ProductSuggestion {
+  id                String                  @id @default(cuid())
+  name              String
+  email             String
+  phone             String?
+  productName       String?
+  description       String                  @db.Text
+  extraNotes        String?                 @db.Text
+  shopifyCustomerId String?
+  photoUrl          String?
+  photoFilename     String?
+  status            ProductSuggestionStatus @default(NEW)
+  staffNote         String?                 @db.Text
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([email])
+}
+

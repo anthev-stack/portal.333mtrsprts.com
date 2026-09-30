@@ -11,6 +11,7 @@ import {
   Headphones,
   Home,
   Inbox,
+  Lightbulb,
   Settings,
   Shield,
   Users,
@@ -38,6 +39,7 @@ function navSections(role: "STAFF" | "ADMIN"): { primary: NavItem[]; footer: Nav
     { href: "/home", label: "Home", icon: Home },
     { href: "/knowledgebase", label: "Knowledgebase", icon: BookOpen },
     { href: "/customer-care", label: "Customer care", icon: Headphones },
+    { href: "/product-suggestions", label: "Suggestions", icon: Lightbulb },
     { href: "/mail", label: "Mail", icon: Inbox },
     { href: "/jobs", label: "Jobs", icon: Briefcase },
   ];
@@ -82,6 +84,8 @@ function SidebarNavLink({
     item.href === "/knowledgebase" ? (counts?.knowledgebase ?? 0) : 0;
   const careN =
     item.href === "/customer-care" ? (counts?.customerCare ?? 0) : 0;
+  const suggestionsN =
+    item.href === "/product-suggestions" ? (counts?.productSuggestions ?? 0) : 0;
   return (
     <Link
       href={item.href}
@@ -108,6 +112,7 @@ function SidebarNavLink({
         {item.href === "/home" && <CountChip n={homeN} />}
         {item.href === "/knowledgebase" && <CountChip n={kbN} />}
         {item.href === "/customer-care" && <CountChip n={careN} />}
+        {item.href === "/product-suggestions" && <CountChip n={suggestionsN} />}
         {item.href === "/mail" && <CountChip n={mailN} />}
         {item.href === "/jobs" && <CountChip n={jobsN} />}
       </span>
